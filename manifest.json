@@ -95,7 +95,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["scanner.html", "scanner.css", "scanner.js", "icons/*", "theme-init.js"],
+      "resources": ["scanner.html", "scanner.css", "scanner.js", "icons/*", "theme-init.js", "update_signal.txt"],
       "matches": ["<all_urls>"]
     }
   ]

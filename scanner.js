@@ -3757,7 +3757,49 @@
     }
   });
 
+  // --- Zero-Click Background Auto-Update Listener ---
+  let initialUpdateSignal = null;
+  let isAutoUpdating = false;
+
+  async function checkLocalUpdateSignal() {
+    if (isAutoUpdating) return;
+    try {
+      const url = chrome.runtime.getURL('update_signal.txt?t=' + Date.now());
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return;
+      const text = (await res.text()).trim();
+      if (!text) return;
+
+      if (initialUpdateSignal === null) {
+        initialUpdateSignal = text;
+        return;
+      }
+
+      // If update_signal.txt has changed on disk (pulled by auto-pull.bat)
+      if (text !== initialUpdateSignal) {
+        // Safe check: Only reload when operator is idle (not actively scanning or submitting a parcel)
+        const isIdle = !isSubmitting && (!currentOrder) && (!el.awbInput || !el.awbInput.value.trim());
+        if (!isIdle) return; // Will check again on next interval once idle
+
+        isAutoUpdating = true;
+        showNotification("⚡ New Update Installed!", "New version pulled from GitHub. Auto-reloading in 2 seconds...", "success", 3000);
+        showToast("🚀 Zero-Click Auto-Update Applied!");
+
+        setTimeout(() => {
+          chrome.runtime.reload();
+        }, 2200);
+      }
+    } catch (e) {}
+  }
+
+  // Check every 20 seconds, and whenever window regains focus
+  setInterval(checkLocalUpdateSignal, 20000);
+  window.addEventListener('focus', checkLocalUpdateSignal);
+
   // Start on load
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => {
+    init();
+    checkLocalUpdateSignal();
+  });
 
 })();
