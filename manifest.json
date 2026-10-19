@@ -1,0 +1,102 @@
+{
+  "manifest_version": 3,
+  "name": "Ugaan Hub: Return Scan & VMS-Sync",
+  "version": "2.0.0",
+  "description": "All-in-One Return QC Station with Big Image Preview & Auto Flipkart VMS to EliteSecom OMS Pickup Sync with Emergency Cancelled Siren.",
+  "permissions": [
+    "storage",
+    "downloads",
+    "tabs",
+    "declarativeNetRequest",
+    "scripting",
+    "cookies",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "*://*/*",
+    "https://*/*",
+    "http://*/*",
+    "https://fkvms.synlabs.io/*",
+    "https://*.synlabs.io/*",
+    "https://my.elitesecom.ai/*",
+    "https://oms.elitesecom.ai/*",
+    "https://*.elitesecom.ai/*",
+    "https://supplier.meesho.com/*",
+    "https://seller.flipkart.com/*",
+    "https://sellercentral.amazon.in/*",
+    "https://*.amazonaws.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "action": {
+    "default_title": "Ugaan Return Scan",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://fkvms.synlabs.io/*"
+      ],
+      "js": [
+        "interceptor.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://fkvms.synlabs.io/*"
+      ],
+      "js": [
+        "vms_content.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://my.elitesecom.ai/*",
+        "https://oms.elitesecom.ai/*"
+      ],
+      "js": [
+        "elite_content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "<all_urls>",
+        "*://*/*",
+        "https://*/*",
+        "http://*/*"
+      ],
+      "exclude_matches": [
+        "https://fkvms.synlabs.io/*"
+      ],
+      "run_at": "document_end",
+      "all_frames": true,
+      "match_about_blank": true,
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["scanner.html", "scanner.css", "scanner.js", "icons/*", "theme-init.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

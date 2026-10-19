@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ugaan Return Scan</title>
+  <script src="theme-init.js"></script>
+  <link rel="stylesheet" href="scanner.css">
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-left">
+      <div class="brand">
+        <span class="brand-icon">📦</span>
+        <div>
+          <h1>Ugaan Return Scan</h1>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batch Condition & Scan Mode Selectors -->
+    <div class="nav-center">
+      <div class="condition-selector-box">
+        <label for="batch-condition" class="selector-label" title="Batch Condition">
+          <span class="pulse-dot"></span> BATCH:
+        </label>
+        <select id="batch-condition" class="condition-dropdown">
+          <option value="good" selected>Good</option>
+          <option value="received">Received</option>
+          <option value="repair">Repair</option>
+          <option value="wrong">Wrong</option>
+          <option value="damaged">Damaged</option>
+          <option value="used">Used</option>
+          <option value="non_barcode_rto">Non Barcode RTO</option>
+          <option value="rto_wrong">RTO Wrong</option>
+          <option value="missing_mq">Missing MQ</option>
+          <option value="missing_qt" style="display:none;">Missing QT</option>
+        </select>
+      </div>
+
+      <!-- Scan Mode Selector (Hidden from header, runs Smart Auto in background) -->
+      <div class="mode-selector-box" title="Scan Mode" style="display: none;">
+        <label for="scan-mode-select" class="selector-label mode-label" title="Scan Mode">
+          <span class="pulse-dot-mode"></span> MODE:
+        </label>
+        <select id="scan-mode-select" class="condition-dropdown mode-dropdown" title="Select Scan Mode">
+          <option value="auto" selected>⚡ Smart Auto (Normal + Same Day Cancel)</option>
+          <option value="direct">🚀 Direct Scan (Fast / Same Day Cancel)</option>
+          <option value="detail">🖼️ Detail Only (Photo & SKU)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <!-- Dual-OMS Panel Status (V2 & V1) -->
+      <div class="oms-status-group" title="OMS Status">
+        <button id="btn-v2-status" class="oms-status-pill" title="V2 (my.elitesecom.ai) - Click to Open">
+          <span id="v2-status-dot" class="status-indicator-dot online"></span>
+          <span>V2</span>
+        </button>
+        <button id="btn-v1-status" class="oms-status-pill" title="V1 (oms.elitesecom.ai) - Click to Open">
+          <span id="v1-status-dot" class="status-indicator-dot online"></span>
+          <span>V1</span>
+        </button>
+      </div>
+
+      <!-- Fullscreen Toggle -->
+      <button id="toggle-fullscreen" class="icon-btn" title="Fullscreen">
+        <span>⛶</span>
+      </button>
+
+      <!-- Settings Icon Button (Consolidated Settings) -->
+      <button id="btn-open-settings" class="icon-btn btn-settings" title="Settings (Auto-Login, Station, Audio, Sheet)">
+        <span style="font-size: 16px;">⚙️</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Summary Statistics Bar (Clean Minimalist Design) -->
+  <section class="stats-bar">
+    <div class="stat-card">
+      <span class="stat-title">Date</span>
+      <span class="stat-value" id="stat-date-display">-</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-title">Total</span>
+      <span class="stat-value text-accent" id="stat-total-scans">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-title">Good</span>
+      <span class="stat-value text-success" id="stat-good-scans">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-title">Multi-Qty</span>
+      <span class="stat-value text-warning" id="stat-multi-scans">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-title">Damaged / Defect</span>
+      <span class="stat-value text-danger" id="stat-defect-scans">0</span>
+    </div>
+  </section>
+
+  <!-- Main Scanning Work Area -->
+  <main class="main-container">
+    
+    <!-- Left Column: Big Product Image Preview -->
+    <div class="left-panel">
+      <div class="image-card">
+        <div class="image-header">
+          <span class="image-title">PRODUCT IMAGE</span>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span id="image-oms-badge" class="badge badge-oms badge-oms-v2" style="display: none;">V2</span>
+            <span id="image-same-day-badge" class="badge badge-same-day" style="display: none; background: #8b5cf6; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">SAME DAY CANCEL</span>
+            <span id="image-marketplace-badge" class="badge marketplace-badge" style="display: none;">Meesho</span>
+          </div>
+        </div>
+
+        <div class="image-wrapper" id="image-container">
+          <div class="empty-image-placeholder" id="placeholder-box">
+            <img src="icons/scanner_placeholder_dark.png" alt="Return Scanning Station" class="placeholder-3d-img dark-theme-only">
+            <img src="icons/scanner_placeholder_light.jpg" alt="Return Scanning Station" class="placeholder-3d-img light-theme-only">
+          </div>
+          <img id="product-img" src="" alt="Product" class="product-image" style="display: none;">
+          <div id="image-loader" class="image-loader" style="display: none;">
+            <div class="spinner"></div>
+            <span>Loading Image...</span>
+          </div>
+        </div>
+
+        <div class="image-footer" id="image-footer" style="display: none;">
+          <span id="img-sku-footer" class="footer-sku">SKU: -</span>
+          <button id="btn-zoom-image" class="btn-sm">View Full Image</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Barcode Scanner & Order Details -->
+    <div class="right-panel">
+
+      <!-- Scanner Input Box -->
+      <div class="scanner-input-card">
+        <div class="input-header">
+          <label for="awb-input" class="awb-label">
+            <span>SCAN AWB BARCODE</span>
+          </label>
+          <span id="scanner-status-badge" class="status-indicator ready">READY</span>
+        </div>
+
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="awb-input" 
+            class="awb-input-field" 
+            placeholder="Scan AWB..." 
+            autofocus 
+            autocomplete="off" 
+            spellcheck="false"
+          >
+          <button id="btn-search-manual" class="btn-search">Scan</button>
+        </div>
+      </div>
+
+      <!-- Login Expired / Session Required Banner (HIDDEN by default) -->
+      <div id="login-expired-box" class="alert-box alert-session" style="display: none;">
+        <div class="alert-icon">🔒</div>
+        <div class="alert-content">
+          <h3 id="login-expired-title">OMS Session Expired</h3>
+          <p id="login-expired-desc">
+            Your OMS session has expired. Please log in to continue.
+            <span style="display: block; margin-top: 6px; font-size: 12px; opacity: 0.9; color: #c7d2fe;">
+              ⚡ Auto-dismisses upon login.
+            </span>
+          </p>
+          <div class="alert-actions">
+            <button id="btn-open-login" class="btn-action btn-login">
+              Open V2 Login
+            </button>
+            <button id="btn-open-v1-login" class="btn-action btn-login" style="background: #2563eb;">
+              Open V1 Login
+            </button>
+            <button id="btn-dismiss-login" class="btn-action btn-cancel">
+              Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Multi-Quantity Warning Alert (HIDDEN by default, displayed if Qty > 1) -->
+      <div id="multi-qty-alert-box" class="alert-box alert-multi-qty" style="display: none;">
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-content">
+          <h3 id="multi-qty-alert-title">Multi-Quantity Detected</h3>
+          <p id="multi-qty-alert-desc">
+            This order contains <b><span id="alert-qty-num">2</span> units</b>. Please verify all pieces before submitting.
+          </p>
+          <div class="alert-actions">
+            <button id="btn-manual-submit-alert" class="btn-action btn-confirm-submit">
+              Confirm & Submit (F2)
+            </button>
+            <button id="btn-cancel-alert" class="btn-action btn-cancel">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order Details Card -->
+      <div class="order-details-card" id="details-card">
+        <div class="card-header-bar">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <h3>ORDER DETAILS</h3>
+            <span id="detail-oms-tag" class="badge badge-oms badge-oms-v2" style="display: none;">V2</span>
+            <span id="detail-same-day-tag" class="badge badge-same-day" style="display: none; background: #8b5cf6; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">SAME DAY CANCEL</span>
+          </div>
+          <span id="detail-condition-tag" class="condition-tag">GOOD</span>
+        </div>
+
+        <div class="details-grid">
+          <div class="detail-item full-width highlight-item">
+            <span class="lbl">Master SKU:</span>
+            <span class="val bold-sku" id="det-master-sku">-</span>
+          </div>
+
+          <div class="detail-item">
+            <span class="lbl">AWB:</span>
+            <span class="val font-mono" id="det-awb">-</span>
+          </div>
+
+          <div class="detail-item">
+            <span class="lbl">Quantity:</span>
+            <span class="val badge-qty" id="det-quantity">-</span>
+          </div>
+
+          <div class="detail-item">
+            <span class="lbl">Marketplace:</span>
+            <span class="val" id="det-marketplace">-</span>
+          </div>
+
+          <div class="detail-item">
+            <span class="lbl">Marketplace SKU:</span>
+            <span class="val" id="det-market-sku">-</span>
+          </div>
+
+          <div class="detail-item full-width">
+            <span class="lbl">Suborder:</span>
+            <span class="val font-mono" id="det-suborder">-</span>
+          </div>
+
+          <div class="detail-item">
+            <span class="lbl">Status:</span>
+            <span class="val" id="det-status">-</span>
+          </div>
+
+          <div class="detail-item">
+            <span class="lbl">Type:</span>
+            <span class="val" id="det-type">-</span>
+          </div>
+        </div>
+
+        <!-- Manual Actions Bar -->
+        <div class="manual-actions-bar" id="manual-actions-bar">
+          <div class="condition-override">
+            <label for="order-condition-select">Condition:</label>
+            <select id="order-condition-select" class="dropdown-sm">
+              <option value="good">Good</option>
+              <option value="received">Received</option>
+              <option value="repair">Repair</option>
+              <option value="wrong">Wrong</option>
+              <option value="damaged">Damaged</option>
+              <option value="used">Used</option>
+              <option value="non_barcode_rto">Non Barcode RTO</option>
+              <option value="rto_wrong">RTO Wrong</option>
+              <option value="missing_mq">Missing MQ</option>
+              <option value="missing_qt" style="display:none;">Missing QT</option>
+            </select>
+          </div>
+
+          <div class="action-buttons">
+            <button id="btn-manual-submit" class="btn-primary" disabled>
+              <span>Submit (Enter)</span>
+            </button>
+            <button id="btn-clear-current" class="btn-outline">
+              <span>Clear</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Today's Scanned Log Table Section -->
+  <footer class="history-section">
+    <div class="history-header">
+      <div class="history-title">
+        <h3>Today's Scans</h3>
+        <span id="history-count" class="badge-history-count">0 items</span>
+      </div>
+      
+      <div class="history-filters">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="good">Good</button>
+        <button class="filter-btn" data-filter="multi">Multi-Qty</button>
+        <button class="filter-btn" data-filter="defect">Damaged / Defect</button>
+
+        <button id="btn-download-excel" class="filter-btn" style="color: #0284c7; font-weight: 700; border-color: #0ea5e9;" title="Download today's return log as Excel / CSV file">
+          📥 Download CSV
+        </button>
+        <button id="btn-copy-excel" class="filter-btn" style="color: #10b981; font-weight: 700; border-color: #059669;" title="Copy all scans for Excel (Ctrl+V)">
+          📋 Copy Table
+        </button>
+        
+        <button id="btn-clear-history" class="btn-text-danger" title="Clear log">
+          Clear Log
+        </button>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table class="history-table" id="scans-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>OMS</th>
+            <th>Image</th>
+            <th>AWB</th>
+            <th>Master SKU</th>
+            <th>Marketplace</th>
+            <th>Marketplace SKU</th>
+            <th>Qty</th>
+            <th>Condition</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="history-table-body">
+          <tr class="empty-row">
+            <td colspan="10">No scans recorded today.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </footer>
+
+  <!-- Image Modal for Full Preview -->
+  <div id="image-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-sku-title">Product Image</h3>
+        <button id="btn-close-modal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <img id="modal-full-img" src="" alt="Full Product Image">
+      </div>
+    </div>
+  </div>
+
+  <!-- Unified Settings Modal -->
+  <div id="settings-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content settings-modal-content">
+      <div class="modal-header">
+        <div class="modal-title-with-icon">
+          <span class="sheet-title-icon" style="font-size: 20px;">⚙️</span>
+          <div>
+            <h3>Settings Center</h3>
+            <span class="modal-subtitle">Auto-Login Credentials, Station Setup, Sound, and Cloud Sync.</span>
+          </div>
+        </div>
+        <button id="btn-close-settings-modal" class="btn-close">&times;</button>
+      </div>
+
+      <!-- Settings Navigation Tabs -->
+      <div class="settings-tabs-nav">
+        <button class="settings-tab-btn active" data-tab="tab-login">🔐 Auto-Login</button>
+        <button class="settings-tab-btn" data-tab="tab-station">🖥️ Station & Workflow</button>
+        <button class="settings-tab-btn" data-tab="tab-sound">🔊 Sound & Volume</button>
+        <button class="settings-tab-btn" data-tab="tab-sheet">📊 Google Sheet</button>
+        <button class="settings-tab-btn" data-tab="tab-backup">🔄 Multi-PC / Backup</button>
+      </div>
+
+      <div class="modal-body settings-modal-body">
+        
+        <!-- ==================== TAB 1: AUTO-LOGIN ==================== -->
+        <div id="tab-login" class="settings-tab-pane active">
+          <!-- Auto-Login Master Switch -->
+          <div class="settings-card-item">
+            <div class="setting-text-info">
+              <strong>⚡ Automatic Background Re-Login</strong>
+              <p>Automatically re-authenticate when an OMS session drops so return scanning never stops.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-autologin" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <!-- V2 Credentials Box -->
+          <div class="credential-box v2-box">
+            <div class="cred-header">
+              <div class="cred-title">
+                <span class="badge badge-oms badge-oms-v2">V2</span>
+                <strong>New OMS (my.elitesecom.ai)</strong>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="v2-last-checked" class="cred-time-hint"></span>
+                <span id="v2-cred-status" class="cred-status-pill online">Checking...</span>
+              </div>
+            </div>
+            <div class="cred-fields-grid">
+              <div class="field-item">
+                <label for="v2-email-input">Email / Login ID:</label>
+                <input type="text" id="v2-email-input" class="settings-input-field" placeholder="e.g. user@gmail.com" spellcheck="false" autocomplete="off">
+              </div>
+              <div class="field-item">
+                <label for="v2-password-input">Password:</label>
+                <div class="password-wrap">
+                  <input type="password" id="v2-password-input" class="settings-input-field" placeholder="Enter V2 password" spellcheck="false" autocomplete="off">
+                  <button type="button" class="btn-toggle-eye" data-target="v2-password-input" title="Show / Hide">👁️</button>
+                </div>
+              </div>
+            </div>
+            <div class="cred-actions-bar">
+              <button type="button" class="btn-settings-link" id="btn-portal-v2" title="Open Portal in New Tab">Open V2 Portal ↗</button>
+              <button id="btn-save-v2-creds" class="btn-settings-primary">Save V2 Login</button>
+              <button id="btn-test-v2-login" class="btn-settings-secondary">Test V2 Login</button>
+            </div>
+          </div>
+
+          <!-- V1 Credentials Box -->
+          <div class="credential-box v1-box">
+            <div class="cred-header">
+              <div class="cred-title">
+                <span class="badge badge-oms badge-oms-v1">V1</span>
+                <strong>Old OMS (oms.elitesecom.ai)</strong>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span id="v1-last-checked" class="cred-time-hint"></span>
+                <span id="v1-cred-status" class="cred-status-pill online">Checking...</span>
+              </div>
+            </div>
+            <div class="cred-fields-grid">
+              <div class="field-item">
+                <label for="v1-email-input">Email:</label>
+                <input type="text" id="v1-email-input" class="settings-input-field" placeholder="e.g. user@gmail.com" spellcheck="false" autocomplete="off">
+              </div>
+              <div class="field-item">
+                <label for="v1-password-input">Password:</label>
+                <div class="password-wrap">
+                  <input type="password" id="v1-password-input" class="settings-input-field" placeholder="Enter V1 password" spellcheck="false" autocomplete="off">
+                  <button type="button" class="btn-toggle-eye" data-target="v1-password-input" title="Show / Hide">👁️</button>
+                </div>
+              </div>
+            </div>
+            <div class="cred-actions-bar">
+              <button type="button" class="btn-settings-link" id="btn-portal-v1" title="Open Portal in New Tab">Open V1 Portal ↗</button>
+              <button id="btn-save-v1-creds" class="btn-settings-primary">Save V1 Login</button>
+              <button id="btn-test-v1-login" class="btn-settings-secondary">Test V1 Login</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 2: STATION & WORKFLOW ==================== -->
+        <div id="tab-station" class="settings-tab-pane" style="display: none;">
+          <!-- PC Name -->
+          <div class="settings-card-item">
+            <div class="setting-text-info">
+              <strong>Device / Station Name</strong>
+              <p>Tagged in daily logs and Google Sheets to track scans per workstation.</p>
+            </div>
+            <div class="input-with-action" style="max-width: 240px;">
+              <input type="text" id="sheet-pc-name-input" class="sheet-url-field" placeholder="e.g. PC-1, PC-2" spellcheck="false" value="PC-1">
+              <button id="btn-save-pc-name" class="btn-sheet-save">Save</button>
+            </div>
+          </div>
+
+          <!-- Auto-Submit -->
+          <div class="settings-card-item">
+            <div class="setting-text-info">
+              <strong>Single-Quantity (Qty = 1) Auto-Submit</strong>
+              <p>Automatically submit returns immediately without pressing Enter.</p>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggle-autosubmit" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+
+          <!-- Primary OMS Search Priority -->
+          <div class="settings-card-item" style="flex-direction: column; align-items: stretch; gap: 10px;">
+            <div class="setting-text-info">
+              <strong>Primary OMS Search Priority</strong>
+              <p>Choose which OMS to search first. If not found in the first OMS, it automatically checks the second.</p>
+            </div>
+            <div id="settings-oms-priority-pills" style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn-settings-pill" data-oms-priority="v1" style="display: flex; align-items: center; gap: 6px; padding: 7px 14px;">
+                <span class="badge badge-oms badge-oms-v1" style="font-size: 10px; padding: 1px 5px;">V1</span>
+                <span>V1 First (oms.elitesecom.ai - Ugaan)</span>
+              </button>
+              <button type="button" class="btn-settings-pill active" data-oms-priority="v2" style="display: flex; align-items: center; gap: 6px; padding: 7px 14px;">
+                <span class="badge badge-oms badge-oms-v2" style="font-size: 10px; padding: 1px 5px;">V2</span>
+                <span>V2 First (my.elitesecom.ai - Jkstyle)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Scan Mode Setting -->
+          <div class="settings-card-item" style="flex-direction: column; align-items: stretch; gap: 10px;">
+            <div class="setting-text-info">
+              <strong>Scan Mode & Same-Day Cancel Handling</strong>
+              <p>Choose how return barcodes are processed. Smart Auto ensures same-day cancelled parcels never fail.</p>
+            </div>
+            <div id="settings-scan-mode-pills" style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button type="button" class="btn-settings-pill active" data-scan-mode="auto" style="display: flex; align-items: center; gap: 6px; padding: 7px 14px;">
+                <span>⚡ Smart Auto (Normal + Same Day Cancel)</span>
+              </button>
+              <button type="button" class="btn-settings-pill" data-scan-mode="direct" style="display: flex; align-items: center; gap: 6px; padding: 7px 14px;">
+                <span>🚀 Direct Scan (Fast / Same Day Cancel)</span>
+              </button>
+              <button type="button" class="btn-settings-pill" data-scan-mode="detail" style="display: flex; align-items: center; gap: 6px; padding: 7px 14px;">
+                <span>🖼️ Detail Only (Photo & SKU)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Theme -->
+          <div class="settings-card-item">
+            <div class="setting-text-info">
+              <strong>Visual Theme</strong>
+              <p>Switch between Dark warehouse theme and clean Light theme.</p>
+            </div>
+            <button id="toggle-theme" class="btn-settings-secondary" title="Theme">
+              <span id="theme-icon">☀️</span> <span id="theme-label-text">Toggle Theme</span>
+            </button>
+          </div>
+
+          <!-- Web Widget Style & Size -->
+          <div class="settings-card-item" style="flex-direction: column; align-items: stretch; gap: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.07);">
+              <div class="setting-text-info">
+                <strong>Floating Scan Button on Webpages</strong>
+                <p>Show or hide the floating barcode scan button on external sites (Gmail, Meesho, etc.).</p>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggle-floating-widget" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <div class="setting-text-info">
+              <strong>Web Widget Appearance & Theme</strong>
+              <p>Customize the floating scan widget style and button size when enabled.</p>
+            </div>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; font-weight: 600; color: #94a3b8;">STYLE:</span>
+                <div id="settings-widget-style-pills" style="display: flex; gap: 6px;">
+                  <button type="button" class="btn-settings-pill active" data-widget-theme="emerald">Emerald</button>
+                  <button type="button" class="btn-settings-pill" data-widget-theme="cyber">Cyber</button>
+                  <button type="button" class="btn-settings-pill" data-widget-theme="amber">Amber</button>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; font-weight: 600; color: #94a3b8;">SIZE:</span>
+                <div id="settings-widget-size-pills" style="display: flex; gap: 6px;">
+                  <button type="button" class="btn-settings-pill" data-widget-size="small">Small</button>
+                  <button type="button" class="btn-settings-pill active" data-widget-size="medium">Medium</button>
+                  <button type="button" class="btn-settings-pill" data-widget-size="large">Large</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 3: SOUND & AUDIO ==================== -->
+        <div id="tab-sound" class="settings-tab-pane" style="display: none;">
+          <div class="settings-card-item">
+            <div class="setting-text-info">
+              <strong>Audio Feedback</strong>
+              <p>Play pleasant confirmation chimes on submit and warning buzzers for duplicates or errors.</p>
+            </div>
+            <button id="toggle-sound" class="icon-btn active" title="Mute / Unmute" style="width: 42px; height: 42px; font-size: 18px;">
+              <span id="sound-icon">🔊</span>
+            </button>
+          </div>
+
+          <div class="settings-card-item" style="flex-direction: column; align-items: stretch; gap: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div class="setting-text-info">
+                <strong>Speaker Loudness</strong>
+                <p>Adjust volume level from 0% up to 150% boost.</p>
+              </div>
+              <span id="volume-val" class="volume-val" style="font-size: 14px; font-weight: 800; color: #0ea5e9;">100%</span>
+            </div>
+            <div style="display: flex; gap: 14px; align-items: center;">
+              <input type="range" id="volume-slider" min="0" max="150" value="100" class="volume-slider" style="flex: 1;">
+              <button id="btn-test-sound" class="btn-settings-secondary" style="white-space: nowrap;">Test Sound 🎵</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 4: GOOGLE SHEET SYNC ==================== -->
+        <div id="tab-sheet" class="settings-tab-pane" style="display: none;">
+          <!-- Live Status Card -->
+          <div class="sheet-status-card" id="sheet-status-card">
+            <div class="status-indicator-box">
+              <span class="status-indicator-circle" id="status-indicator-circle"></span>
+              <div>
+                <strong id="sheet-status-text">Not Connected</strong>
+                <p id="sheet-status-desc">Connect your Google Sheet below to enable live sync.</p>
+              </div>
+            </div>
+            <div class="status-toggle-wrapper">
+              <label class="switch">
+                <input type="checkbox" id="toggle-sheet-sync">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Auto-Sync</span>
+            </div>
+          </div>
+
+          <!-- Webhook URL Input Section -->
+          <div class="sheet-form-group">
+            <label for="sheet-url-input">
+              <span>Web App URL:</span>
+              <span class="label-badge">Required</span>
+            </label>
+            <div class="input-with-action">
+              <input type="url" id="sheet-url-input" class="sheet-url-field" placeholder="https://script.google.com/macros/s/.../exec" spellcheck="false" autocomplete="off">
+              <button id="btn-save-sheet-url" class="btn-sheet-save">Save</button>
+            </div>
+            <p class="sheet-url-hint">Must be the complete URL from <b>Deploy &gt; New deployment</b> ending with <code>/exec</code></p>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="sheet-actions-row">
+            <button id="btn-test-sheet-sync" class="btn-sheet-action">
+              <span>Test Sync</span>
+            </button>
+            <button id="btn-sync-all-today" class="btn-sheet-action">
+              <span>Sync Today</span>
+            </button>
+          </div>
+
+          <!-- Step-by-Step Setup Guide Box -->
+          <div class="sheet-guide-box">
+            <div class="guide-header">
+              <span><b>Setup Guide:</b></span>
+            </div>
+            <ol class="guide-steps">
+              <li><span>Create or open a sheet in your <b>Google Drive</b>.</span></li>
+              <li><span>Click <b>Extensions &gt; Apps Script</b> in the top menu.</span></li>
+              <li><span>Delete any default code and paste the Apps Script code below:</span>
+                <div class="code-copy-wrapper">
+                  <pre class="script-code-preview" id="script-code-block"><code>function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({ result: "success", status: "active", message: "Google Sheet Return Sync is ready!" })).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) throw new Error("Spreadsheet not found. Open this in Extensions > Apps Script inside your sheet!");
+    var sheet = ss.getActiveSheet();
+    var defaultHeaders = ["Date", "Scan Time", "PC Name", "OMS", "Return AWB Number", "Master SKU", "Marketplace SKU", "Marketplace", "Suborder Number", "Return Quantity", "Condition", "Status", "Image URL"];
+
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(defaultHeaders);
+      sheet.getRange(1, 1, 1, defaultHeaders.length).setFontWeight("bold").setBackground("#dcfce7");
+    }
+
+    var contents = (e && e.postData && e.postData.contents) ? e.postData.contents : "";
+    if (!contents) throw new Error("No data in POST request");
+    var data = JSON.parse(contents);
+    var items = Array.isArray(data) ? data : [data];
+    if (items.length === 0) return ContentService.createTextOutput(JSON.stringify({ result: "success", count: 0 })).setMimeType(ContentService.MimeType.JSON);
+
+    var lastCol = Math.max(sheet.getLastColumn(), 1);
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+    // If existing sheet has no PC Name or OMS column, auto-add to header
+    var pcColFound = false;
+    var omsColFound = false;
+    for (var h = 0; h < headers.length; h++) {
+      var headerStr = String(headers[h]).toLowerCase();
+      if (headerStr.includes("pc") || headerStr.includes("station")) pcColFound = true;
+      if (headerStr === "oms" || headerStr.includes("source")) omsColFound = true;
+    }
+    if (!pcColFound && sheet.getLastRow() > 0) {
+      sheet.getRange(1, lastCol + 1).setValue("PC Name").setFontWeight("bold").setBackground("#dcfce7");
+      headers.push("PC Name");
+      lastCol = lastCol + 1;
+    }
+    if (!omsColFound && sheet.getLastRow() > 0) {
+      sheet.getRange(1, lastCol + 1).setValue("OMS").setFontWeight("bold").setBackground("#dcfce7");
+      headers.push("OMS");
+      lastCol = lastCol + 1;
+    }
+
+    var rows = items.map(function(item) {
+      return headers.map(function(col) {
+        var c = String(col).trim().toLowerCase();
+        if (c.includes("date")) return item.date || "";
+        if (c.includes("time")) return item.timestamp || "";
+        if (c.includes("pc") || c.includes("station")) return item.pc_name || "PC-1";
+        if (c === "oms" || c.includes("source")) return item.oms_source || "V2";
+        if (c.includes("awb")) return item.awb || "";
+        if (c.includes("master")) return item.master_sku || "";
+        if (c.includes("market") && c.includes("sku")) return item.marketplace_sku || "";
+        if (c.includes("suborder")) return item.suborder_no || "";
+        if (c.includes("market")) return item.marketplace || "";
+        if (c.includes("qty") || c.includes("quantity")) return item.quantity || 1;
+        if (c.includes("condition")) return item.condition || "Good";
+        if (c.includes("status")) return item.status || "Submitted";
+        if (c.includes("image")) return item.image_url || "";
+        return "";
+      });
+    });
+
+    if (rows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ result: "success", count: rows.length })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ result: "error", error: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  }
+}</code></pre>
+                  <button id="btn-copy-script" class="btn-copy-code" title="Copy code to clipboard">
+                    📋 Copy Code
+                  </button>
+                </div>
+              </li>
+              <li><span>Click the blue <b>Deploy &gt; New deployment</b> button in top right.</span></li>
+              <li><span>Click the gear icon (⚙️), select <b>Web app</b> &rarr; set <i>Who has access</i> to <b>Anyone</b> &rarr; click <b>Deploy</b>.</span></li>
+              <li><span>Copy the generated <b>Web app URL</b>, paste it into the input above, and click <b>Save</b>. Done! 🎉</span></li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 5: MULTI-PC / BACKUP ==================== -->
+        <div id="tab-backup" class="settings-tab-pane" style="display: none;">
+          <!-- Informational Card -->
+          <div class="settings-card-item" style="background: rgba(14, 165, 233, 0.08); border: 1px solid rgba(14, 165, 233, 0.25); border-radius: 8px; padding: 14px 16px;">
+            <div style="font-size: 24px; line-height: 1;">🔄</div>
+            <div class="setting-text-info" style="flex: 1;">
+              <strong style="color: #38bdf8; font-size: 14px;">1-Click Multi-PC Setup &amp; Backup</strong>
+              <p style="margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--text-secondary, #94a3b8);">
+                Export all your settings (V1/V2 logins, search priority, audio volume, and Google Sheet sync) from this workstation, and import them onto PC-2 or any other warehouse PC in 1 second!
+              </p>
+            </div>
+          </div>
+
+          <!-- Export Settings Card -->
+          <div class="settings-card-item" style="flex-direction: column; align-items: stretch; gap: 12px;">
+            <div class="setting-text-info">
+              <strong>📤 Export Station Configuration (From this PC)</strong>
+              <p>Download a backup file or copy your setup code to configure another workstation.</p>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+              <button type="button" id="btn-export-settings-file" class="btn-settings-primary" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px;">
+                <span>📥 Download Backup File (.json)</span>
+              </button>
+              <button type="button" id="btn-copy-settings-code" class="btn-settings-secondary" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px;">
+                <span>📋 Copy Setup Code</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Import Settings Card -->
+          <div class="settings-card-item" style="flex-direction: column; align-items: stretch; gap: 12px;">
+            <div class="setting-text-info">
+              <strong>📥 Import Station Configuration (Onto this PC)</strong>
+              <p>Select a downloaded backup file or paste your setup code to instantly configure this PC.</p>
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+              <input type="file" id="input-import-settings-file" accept=".json" style="display: none;">
+              <button type="button" id="btn-trigger-import-file" class="btn-settings-primary" style="background: #10b981; border-color: #059669; display: flex; align-items: center; gap: 8px; padding: 8px 16px;">
+                <span>📂 Choose Backup File (.json)</span>
+              </button>
+            </div>
+
+            <!-- Paste Code Box -->
+            <div style="margin-top: 6px;">
+              <label for="txt-import-settings-code" style="font-size: 11px; font-weight: 700; color: #94a3b8; display: block; margin-bottom: 4px;">
+                Or Paste Setup Code:
+              </label>
+              <textarea id="txt-import-settings-code" class="settings-input-field font-mono" rows="2" placeholder="Paste your setup code here and click Apply..." style="width: 100%; resize: vertical; font-size: 11px;"></textarea>
+              <button type="button" id="btn-apply-pasted-settings" class="btn-settings-secondary" style="margin-top: 8px;">
+                ⚡ Apply Setup Code
+              </button>
+            </div>
+          </div>
+
+          <!-- Chrome Cloud Sync Hint -->
+          <div class="settings-card-item" style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 12px 16px;">
+            <div style="font-size: 20px;">🌐</div>
+            <div class="setting-text-info" style="flex: 1;">
+              <strong style="color: #10b981; font-size: 13px;">Google Chrome Account Cloud Sync</strong>
+              <p style="font-size: 11px; margin-top: 2px; color: var(--text-secondary, #94a3b8);">
+                When multiple workstations are signed into the same Chrome user profile, settings and Google Sheet URLs synchronize automatically via Google Cloud.
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Notification Toast Container (Image 2 Style) -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="scanner.js"></script>
+</body>
+</html>
