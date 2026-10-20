@@ -543,7 +543,7 @@ async function requestPickupV2(cleanAwb, courier, autoLogin, creds) {
       const tabs = await chrome.tabs.query({ url: "*://my.elitesecom.ai/*" });
       if (tabs && tabs.length > 0) {
         const tabRes = await new Promise((resResolve) => {
-          const t = setTimeout(() => resResolve(null), 2500);
+          const t = setTimeout(() => resResolve(null), 5000);
           chrome.tabs.sendMessage(tabs[0].id, {
             action: "SCAN_AWB_IN_ELITE",
             awb: cleanAwb,
@@ -631,7 +631,7 @@ async function requestPickupV1(cleanAwb, courier, autoLogin, creds) {
       const tabs = await chrome.tabs.query({ url: "*://oms.elitesecom.ai/*" });
       if (tabs && tabs.length > 0) {
         const tabRes = await new Promise((resResolve) => {
-          const t = setTimeout(() => resResolve(null), 2500);
+          const t = setTimeout(() => resResolve(null), 5000);
           chrome.tabs.sendMessage(tabs[0].id, {
             action: "SCAN_AWB_IN_ELITE",
             awb: cleanAwb,
@@ -843,6 +843,12 @@ async function recordResult(awb, res, settings) {
     diffSec = Math.max(1, Math.round((now - startTimestamp) / 1000));
     durationStr = formatSeconds(diffSec);
 
+    // If it was already marked SUCCESS in this packing session, keep it as SUCCESS on closing scan!
+    if (logs[existingIndex].statusType === "SUCCESS" && statusType === "ALREADY_SCANNED") {
+      statusType = "SUCCESS";
+      serverMsg = `Packed (${durationStr})`;
+    }
+
     logs[existingIndex].endTime = timeStr;
     logs[existingIndex].endTimestamp = now;
     logs[existingIndex].duration = durationStr;
@@ -850,7 +856,7 @@ async function recordResult(awb, res, settings) {
     logs[existingIndex].videoStatus = "DONE";
     logs[existingIndex].statusType = statusType;
     logs[existingIndex].omsSource = omsSource;
-    logs[existingIndex].success = isSuccess;
+    logs[existingIndex].success = (statusType === "SUCCESS");
     logs[existingIndex].status = res.status;
     logs[existingIndex].message = serverMsg;
   } else {
@@ -874,9 +880,13 @@ async function recordResult(awb, res, settings) {
     if (logs.length > 500) logs = logs.slice(0, 500);
   }
 
-  let successCount = (settings.todaySuccess || 0) + (isSuccess && existingIndex === -1 ? 1 : 0);
-  let failedCount = (settings.todayFailed || 0) + (!isSuccess && !isWarning && !isCancelled && existingIndex === -1 ? 1 : 0);
-  let cancelledCount = (settings.todayCancelled || 0) + (isCancelled && existingIndex === -1 ? 1 : 0);
+  const finalIsSuccess = statusType === "SUCCESS";
+  const finalIsWarning = statusType === "ALREADY_SCANNED";
+  const finalIsCancelled = statusType === "CANCELLED";
+
+  let successCount = (settings.todaySuccess || 0) + (finalIsSuccess && existingIndex === -1 ? 1 : 0);
+  let failedCount = (settings.todayFailed || 0) + (!finalIsSuccess && !finalIsWarning && !finalIsCancelled && existingIndex === -1 ? 1 : 0);
+  let cancelledCount = (settings.todayCancelled || 0) + (finalIsCancelled && existingIndex === -1 ? 1 : 0);
 
   await chrome.storage.local.set({
     scanLogs: logs,
@@ -894,7 +904,7 @@ async function recordResult(awb, res, settings) {
       awb: awb,
       omsSource: omsSource,
       statusType: statusType,
-      success: isSuccess,
+      success: finalIsSuccess,
       courier: settings.courier || "all",
       message: serverMsg
     }).then(sheetRes => {
@@ -907,7 +917,7 @@ async function recordResult(awb, res, settings) {
   return {
     awb,
     omsSource,
-    success: isSuccess,
+    success: finalIsSuccess,
     statusType: statusType,
     status: res.status,
     message: serverMsg,
@@ -918,33 +928,78 @@ async function recordResult(awb, res, settings) {
   };
 }
 
-// Timeout Wrapper for Pickup Scan
-async function handleEliteScanWithTimeout(awb) {
-  return new Promise(async (resolve) => {
-    const timer = setTimeout(() => {
-      resolve({
-        awb,
-        success: false,
-        statusType: "ERROR",
-        status: 408,
-        message: "Timeout: EliteSecom server not responding."
-      });
-    }, 7000);
+// In-Flight Scans and Recent Scan Cache to guarantee NO double-push to OMS
+const activeInFlightScans = new Map(); // cleanAwb -> Promise
+const recentCompletedScans = new Map(); // cleanAwb -> { result, timestamp }
 
+// Timeout Wrapper for Pickup Scan with Deduplication Lock
+async function handleEliteScanWithTimeout(awb) {
+  const cleanAwb = String(awb || "").replace(/^[(\s]+|[)\s]+$/g, "").trim();
+  if (!cleanAwb) {
+    return { success: false, statusType: "ERROR", message: "Invalid AWB" };
+  }
+
+  const now = Date.now();
+
+  // 1. If this exact AWB was completed within the last 4 seconds, return cached result!
+  if (recentCompletedScans.has(cleanAwb)) {
+    const cached = recentCompletedScans.get(cleanAwb);
+    if (now - cached.timestamp < 4000) {
+      console.log(`[VMS-Sync] Duplicate scan suppressed for ${cleanAwb}, returning cached result.`);
+      return cached.result;
+    }
+  }
+
+  // 2. If a scan is currently IN-FLIGHT for this exact AWB, piggyback on the same promise!
+  if (activeInFlightScans.has(cleanAwb)) {
+    console.log(`[VMS-Sync] Scan already in-flight for ${cleanAwb}, awaiting existing promise.`);
+    return activeInFlightScans.get(cleanAwb);
+  }
+
+  const scanPromise = (async () => {
+    let timer = null;
     try {
-      const result = await executeDualPickupScan(awb);
-      clearTimeout(timer);
-      resolve(result);
+      const timeoutPromise = new Promise((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            awb: cleanAwb,
+            success: false,
+            statusType: "ERROR",
+            status: 408,
+            message: "Timeout: EliteSecom server not responding."
+          });
+        }, 9000);
+      });
+
+      const scanExecPromise = executeDualPickupScan(cleanAwb);
+      const res = await Promise.race([scanExecPromise, timeoutPromise]);
+      if (timer) clearTimeout(timer);
+      return res;
     } catch (err) {
-      clearTimeout(timer);
-      resolve({
-        awb,
+      if (timer) clearTimeout(timer);
+      return {
+        awb: cleanAwb,
         success: false,
         statusType: "ERROR",
         message: err.message || "Scan error"
-      });
+      };
+    } finally {
+      activeInFlightScans.delete(cleanAwb);
     }
-  });
+  })();
+
+  activeInFlightScans.set(cleanAwb, scanPromise);
+
+  const finalResult = await scanPromise;
+  recentCompletedScans.set(cleanAwb, { result: finalResult, timestamp: Date.now() });
+
+  // Keep recent cache size manageable
+  if (recentCompletedScans.size > 200) {
+    const earliestKey = recentCompletedScans.keys().next().value;
+    recentCompletedScans.delete(earliestKey);
+  }
+
+  return finalResult;
 }
 
 // Google Sheets Sync Helper (compatible with both Apps Script endpoints)

@@ -12,17 +12,14 @@
       const awb = String(request.awb || "").replace(/^[(\s]+|[)\s]+$/g, "").trim();
       console.log("[Ugaan VMS-Sync] Received scan request for AWB:", awb);
 
-      // 1. Also update the DOM input field on pickup-entry page if present
+      // 1. Visually update the DOM input field on pickup-entry page if present without triggering duplicate page events
       try {
         const input = document.querySelector('input[placeholder*="AWB Number"]') ||
                       document.querySelector('input[placeholder*="Click Here To Scan"]') ||
                       document.querySelector('.pickup-entry input') ||
                       document.querySelector('input[type="text"]');
         if (input) {
-          input.focus();
           input.value = awb;
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.dispatchEvent(new Event("change", { bubbles: true }));
         }
       } catch (domErr) {
         console.warn("[Ugaan VMS-Sync] DOM update note:", domErr);

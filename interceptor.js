@@ -35,10 +35,21 @@
     }
   }
 
+  let lastNotifiedAwb = "";
+  let lastNotifiedTime = 0;
+
   function notifyAwbScan(awb, originUrl, triggerType) {
     if (!awb) return;
     const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
     if (!cleanAwb || cleanAwb.length < 5) return;
+
+    const now = Date.now();
+    if (lastNotifiedAwb === cleanAwb && (now - lastNotifiedTime < 3500)) {
+      console.log(`[Ugaan VMS-Sync] Interceptor suppressed duplicate notification for ${cleanAwb} (${triggerType})`);
+      return;
+    }
+    lastNotifiedAwb = cleanAwb;
+    lastNotifiedTime = now;
 
     window.postMessage({
       source: "VMS_SYNC_PAGE",
@@ -46,7 +57,7 @@
       awb: cleanAwb,
       url: originUrl || "",
       triggerType: triggerType || "NETWORK",
-      timestamp: Date.now()
+      timestamp: now
     }, "*");
   }
 
