@@ -1,5 +1,5 @@
 /**
- * VMS-Sync: Content Script (v1.0.5)
+ * VMS-Sync: Content Script (v2.0.1)
  * Shows exact EliteSecom server messages with high-visibility badges:
  * [ ✅ DONE ], [ ⚠️ ALREADY SCANNED ], [ ⛔ CANCELLED ], [ ❌ NOT FOUND ]
  */
