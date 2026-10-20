@@ -1065,23 +1065,15 @@ async function checkBackgroundUpdates() {
         } else if (text !== initialLocalSignal) {
           updateAvailable = true;
           console.log("[VMS-Sync] Local update detected on disk!");
+        } else {
+          updateAvailable = false;
         }
-      }
-    }
-
-    // Check GitHub raw signal
-    const gitRes = await fetch("https://raw.githubusercontent.com/UGAAN/Ruten-Scen-New/main/update_signal.txt?t=" + Date.now(), { cache: "no-store" });
-    if (gitRes.ok) {
-      const gitText = (await gitRes.text()).trim();
-      if (gitText && initialLocalSignal && gitText !== initialLocalSignal) {
-        updateAvailable = true;
-        console.log("[VMS-Sync] Remote update detected on GitHub!");
       }
     }
   } catch (e) {}
 }
 
-setInterval(checkBackgroundUpdates, 40000);
+setInterval(checkBackgroundUpdates, 30000);
 checkBackgroundUpdates();
 
 // Listen for messages from popup, content script, or scanner page
@@ -1092,6 +1084,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "RELOAD_EXTENSION") {
+    updateAvailable = false;
     sendResponse({ success: true });
     setTimeout(() => {
       chrome.runtime.reload();

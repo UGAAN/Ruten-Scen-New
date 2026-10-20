@@ -126,6 +126,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (chrome.runtime.lastError) return;
       if (resp && resp.updateAvailable && updateBanner) {
         updateBanner.style.display = "flex";
+      } else if (updateBanner) {
+        updateBanner.style.display = "none";
       }
     });
 
