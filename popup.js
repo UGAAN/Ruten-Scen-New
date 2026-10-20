@@ -118,6 +118,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   const themeIcon = document.getElementById('popup-theme-icon');
   const footerConnection = document.getElementById('footer-connection');
 
+  // Live Update Notification Banner
+  const updateBanner = document.getElementById('popup-update-banner');
+  const reloadBtn = document.getElementById('popup-reload-btn');
+  try {
+    chrome.runtime.sendMessage({ action: "CHECK_UPDATE" }, (resp) => {
+      if (chrome.runtime.lastError) return;
+      if (resp && resp.updateAvailable && updateBanner) {
+        updateBanner.style.display = "flex";
+      }
+    });
+
+    if (reloadBtn) {
+      reloadBtn.onclick = () => {
+        reloadBtn.textContent = "Reloading...";
+        try {
+          chrome.runtime.sendMessage({ action: "RELOAD_EXTENSION" });
+        } catch (e) {}
+        setTimeout(() => window.close(), 300);
+      };
+    }
+  } catch (e) {}
+
   // Volume Elements
   const volumeSlider = document.getElementById('volume-slider');
   const volumeVal = document.getElementById('volume-val');

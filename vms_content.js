@@ -333,6 +333,32 @@
           border: 1px solid #bfdbfe;
           cursor: grab;
         }
+        .vms-sync-update-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+          background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+          color: #ffffff !important;
+          border: 1px solid #047857;
+          border-radius: 10px;
+          padding: 1px 7px;
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: 0.3px;
+          cursor: pointer !important;
+          box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.4);
+          animation: vms-update-pulse 1.4s infinite alternate;
+          transition: transform 0.15s ease;
+          white-space: nowrap;
+        }
+        .vms-sync-update-pill:hover {
+          transform: scale(1.06);
+          background: linear-gradient(135deg, #047857 0%, #059669 100%);
+        }
+        @keyframes vms-update-pulse {
+          0% { box-shadow: 0 0 2px rgba(16, 185, 129, 0.4); }
+          100% { box-shadow: 0 0 8px rgba(16, 185, 129, 0.9); }
+        }
         .vms-sync-status-box {
           display: flex;
           align-items: center;
@@ -509,6 +535,9 @@
             <span class="vms-sync-title-text">VMS-Sync</span>
             <span class="vms-sync-counter-badge" id="vms-sync-counter" title="Today's Successfully Synced Orders">0</span>
           </div>
+          <button id="vms-sync-update-btn" class="vms-sync-update-pill" style="display: none;" title="New Update Pulled from GitHub! Click to 1-Click Reload Extension & Page">
+            <span>🚀 UPDATE READY</span>
+          </button>
           <div class="vms-sync-portal-chips" id="vms-sync-portal-chips-container">
             <button id="vms-sync-v2-chip" class="vms-sync-portal-chip offline" style="display: none;" title="V2 Logged Out! Click to Login">V2: 🔴 Login</button>
             <button id="vms-sync-v1-chip" class="vms-sync-portal-chip offline" style="display: none;" title="V1 Logged Out! Click to Login">V1: 🔴 Login</button>
@@ -1005,6 +1034,52 @@
     runConnectionCheck();
     setInterval(runConnectionCheck, 15000);
     window.addEventListener("focus", runConnectionCheck);
+
+    // Live Update Notification & 1-Click Reload Button
+    const updateBtn = document.getElementById("vms-sync-update-btn");
+    if (updateBtn) {
+      updateBtn.addEventListener("click", () => {
+        updateBtn.innerHTML = "<span>🔄 Reloading...</span>";
+        try {
+          chrome.runtime.sendMessage({ action: "RELOAD_EXTENSION" });
+        } catch (e) {}
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      });
+    }
+
+    let initialUpdateSignal = null;
+    async function checkUpdateSignal() {
+      try {
+        const localUrl = chrome.runtime.getURL("update_signal.txt?t=" + Date.now());
+        const res = await fetch(localUrl, { cache: "no-store" });
+        if (res.ok) {
+          const text = (await res.text()).trim();
+          if (text) {
+            if (initialUpdateSignal === null) {
+              initialUpdateSignal = text;
+            } else if (text !== initialUpdateSignal) {
+              const uBtn = document.getElementById("vms-sync-update-btn");
+              if (uBtn) uBtn.style.display = "inline-flex";
+              return;
+            }
+          }
+        }
+
+        chrome.runtime.sendMessage({ action: "CHECK_UPDATE" }, (resp) => {
+          if (chrome.runtime.lastError) return;
+          if (resp && resp.updateAvailable) {
+            const uBtn = document.getElementById("vms-sync-update-btn");
+            if (uBtn) uBtn.style.display = "inline-flex";
+          }
+        });
+      } catch (e) {}
+    }
+
+    checkUpdateSignal();
+    setInterval(checkUpdateSignal, 20000);
+    window.addEventListener("focus", checkUpdateSignal);
 
     try {
       chrome.runtime.sendMessage({ action: "GET_STATS" }, (res) => {

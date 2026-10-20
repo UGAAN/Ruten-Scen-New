@@ -1034,8 +1034,56 @@ try {
   }
 } catch (_) {}
 
+// Background Update Detector
+let initialLocalSignal = null;
+let updateAvailable = false;
+
+async function checkBackgroundUpdates() {
+  try {
+    const localUrl = chrome.runtime.getURL("update_signal.txt?t=" + Date.now());
+    const res = await fetch(localUrl, { cache: "no-store" });
+    if (res.ok) {
+      const text = (await res.text()).trim();
+      if (text) {
+        if (initialLocalSignal === null) {
+          initialLocalSignal = text;
+        } else if (text !== initialLocalSignal) {
+          updateAvailable = true;
+          console.log("[VMS-Sync] Local update detected on disk!");
+        }
+      }
+    }
+
+    // Check GitHub raw signal
+    const gitRes = await fetch("https://raw.githubusercontent.com/UGAAN/Ruten-Scen-New/main/update_signal.txt?t=" + Date.now(), { cache: "no-store" });
+    if (gitRes.ok) {
+      const gitText = (await gitRes.text()).trim();
+      if (gitText && initialLocalSignal && gitText !== initialLocalSignal) {
+        updateAvailable = true;
+        console.log("[VMS-Sync] Remote update detected on GitHub!");
+      }
+    }
+  } catch (e) {}
+}
+
+setInterval(checkBackgroundUpdates, 40000);
+checkBackgroundUpdates();
+
 // Listen for messages from popup, content script, or scanner page
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "CHECK_UPDATE") {
+    sendResponse({ updateAvailable });
+    return true;
+  }
+
+  if (request.action === "RELOAD_EXTENSION") {
+    sendResponse({ success: true });
+    setTimeout(() => {
+      chrome.runtime.reload();
+    }, 200);
+    return true;
+  }
+
   // --- VMS Pickup Sync Actions ---
   if (request.action === "SYNC_AWB_TO_ELITE") {
     handleEliteScanWithTimeout(request.awb)
