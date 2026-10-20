@@ -279,6 +279,24 @@
         <span class="msg-hint" id="copy-script-msg"></span>
       </div>
 
+      <!-- App Updates Card -->
+      <div class="card">
+        <div class="sub-card-title">
+          <span>🚀 System Updates</span>
+          <span class="badge" style="background:#e0e7ff; color:#3730a3; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700;">v2.0.1</span>
+        </div>
+        <p class="setting-hint">Check GitHub for new features, bug fixes, and updates.</p>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+          <button class="btn btn-sm btn-outline" id="btn-manual-check-update" style="flex: 1;">
+            🔍 Check for Updates
+          </button>
+          <button class="btn btn-sm btn-primary" id="btn-manual-reload-ext" style="display: none; background: #059669; border-color: #047857;">
+            ⚡ Reload &amp; Apply
+          </button>
+        </div>
+        <div id="manual-update-msg" style="margin-top: 6px; font-size: 11px; font-weight: 600; display: none;"></div>
+      </div>
+
       <button class="btn btn-primary btn-block" id="btn-save-settings">
         💾 Save All Settings
       </button>

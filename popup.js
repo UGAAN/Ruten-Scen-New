@@ -996,6 +996,67 @@ function doPost(e) {
   }
 
   // Save All Settings
+  
+  // Manual Update Checker
+  const btnManualCheckUpdate = document.getElementById('btn-manual-check-update');
+  const btnManualReloadExt = document.getElementById('btn-manual-reload-ext');
+  const manualUpdateMsg = document.getElementById('manual-update-msg');
+
+  if (btnManualCheckUpdate) {
+    btnManualCheckUpdate.addEventListener('click', async () => {
+      btnManualCheckUpdate.disabled = true;
+      btnManualCheckUpdate.textContent = '⏳ Checking...';
+      if (manualUpdateMsg) {
+        manualUpdateMsg.style.display = 'block';
+        manualUpdateMsg.style.color = '#3b82f6';
+        manualUpdateMsg.textContent = 'Checking GitHub for latest version...';
+      }
+
+      try {
+        let localSignal = "";
+        try {
+          const lRes = await fetch(chrome.runtime.getURL('update_signal.txt?t=' + Date.now()), { cache: 'no-store' });
+          if (lRes.ok) localSignal = (await lRes.text()).trim();
+        } catch (_) {}
+
+        const gitRes = await fetch('https://raw.githubusercontent.com/UGAAN/Ruten-Scen-New/main/update_signal.txt?t=' + Date.now(), { cache: 'no-store' });
+        if (!gitRes.ok) throw new Error("Could not reach GitHub");
+        const gitSignal = (await gitRes.text()).trim();
+
+        if (gitSignal && localSignal && gitSignal !== localSignal) {
+          if (manualUpdateMsg) {
+            manualUpdateMsg.style.color = '#059669';
+            manualUpdateMsg.textContent = '🚀 New update available on GitHub!';
+          }
+          if (btnManualReloadExt) btnManualReloadExt.style.display = 'inline-block';
+        } else {
+          if (manualUpdateMsg) {
+            manualUpdateMsg.style.color = '#059669';
+            manualUpdateMsg.textContent = '✅ You are running the latest version (v2.0.1)!';
+          }
+        }
+      } catch (err) {
+        if (manualUpdateMsg) {
+          manualUpdateMsg.style.color = '#dc2626';
+          manualUpdateMsg.textContent = '⚠️ Check failed: ' + (err.message || 'Network error');
+        }
+      } finally {
+        btnManualCheckUpdate.disabled = false;
+        btnManualCheckUpdate.textContent = '🔍 Check for Updates';
+      }
+    });
+  }
+
+  if (btnManualReloadExt) {
+    btnManualReloadExt.addEventListener('click', () => {
+      btnManualReloadExt.textContent = 'Reloading...';
+      try {
+        chrome.runtime.sendMessage({ action: 'RELOAD_EXTENSION' });
+      } catch (_) {}
+      setTimeout(() => window.close(), 300);
+    });
+  }
+
   if (btnSaveSettings) {
     btnSaveSettings.addEventListener('click', async () => {
       const courier = inputCourier.value.trim() || 'all';

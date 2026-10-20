@@ -563,6 +563,11 @@
             <button id="vms-sync-inline-save" class="vms-sync-btn-icon" style="flex: 1; background: #00C853; color: white; font-weight: bold; padding: 3px;">SAVE</button>
             <button id="vms-sync-inline-close" class="vms-sync-btn-icon" style="padding: 3px 6px;">CLOSE</button>
           </div>
+          <div style="border-top: 1px dashed #cbd5e1; margin-top: 5px; padding-top: 4px; display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-size: 9px; font-weight: 700; color: #64748b;">Version: 2.0.1</span>
+            <button id="vms-sync-inline-check-update" class="vms-sync-btn-icon" style="background: #3b82f6; color: white; font-weight: bold; padding: 2px 6px; font-size: 9px;" title="Check GitHub for Updates">🔍 Check Update</button>
+          </div>
+          <div id="vms-sync-inline-update-msg" style="font-size: 9px; font-weight: 600; margin-top: 3px; display: none;"></div>
         </div>
       </div>
     `;
@@ -918,6 +923,56 @@
             } catch (e) {
               alert("Failed to save settings: " + e.message);
             }
+          }
+        });
+      }
+
+      // Manual Update Checker in Settings
+      const inlineCheckUpdateBtn = document.getElementById("vms-sync-inline-check-update");
+      const inlineUpdateMsg = document.getElementById("vms-sync-inline-update-msg");
+
+      if (inlineCheckUpdateBtn) {
+        inlineCheckUpdateBtn.addEventListener("click", async () => {
+          inlineCheckUpdateBtn.disabled = true;
+          inlineCheckUpdateBtn.textContent = "⏳...";
+          if (inlineUpdateMsg) {
+            inlineUpdateMsg.style.display = "block";
+            inlineUpdateMsg.style.color = "#3b82f6";
+            inlineUpdateMsg.textContent = "Checking GitHub...";
+          }
+
+          try {
+            let localSignal = "";
+            try {
+              const lRes = await fetch(chrome.runtime.getURL("update_signal.txt?t=" + Date.now()), { cache: "no-store" });
+              if (lRes.ok) localSignal = (await lRes.text()).trim();
+            } catch (_) {}
+
+            const gitRes = await fetch("https://raw.githubusercontent.com/UGAAN/Ruten-Scen-New/main/update_signal.txt?t=" + Date.now(), { cache: "no-store" });
+            if (!gitRes.ok) throw new Error("GitHub error");
+            const gitSignal = (await gitRes.text()).trim();
+
+            if (gitSignal && localSignal && gitSignal !== localSignal) {
+              if (inlineUpdateMsg) {
+                inlineUpdateMsg.style.color = "#059669";
+                inlineUpdateMsg.textContent = "🚀 Update available! Click 'UPDATE READY' above.";
+              }
+              const uBtn = document.getElementById("vms-sync-update-btn");
+              if (uBtn) uBtn.style.display = "inline-flex";
+            } else {
+              if (inlineUpdateMsg) {
+                inlineUpdateMsg.style.color = "#059669";
+                inlineUpdateMsg.textContent = "✅ Latest version v2.0.1";
+              }
+            }
+          } catch (err) {
+            if (inlineUpdateMsg) {
+              inlineUpdateMsg.style.color = "#dc2626";
+              inlineUpdateMsg.textContent = "Check failed: " + err.message;
+            }
+          } finally {
+            inlineCheckUpdateBtn.disabled = false;
+            inlineCheckUpdateBtn.textContent = "🔍 Check Update";
           }
         });
       }
