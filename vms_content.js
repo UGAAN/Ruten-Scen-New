@@ -1120,7 +1120,12 @@
       statusBox.classList.add("warning");
       stateBadge.className = "vms-sync-badge-pill warning";
       stateBadge.textContent = "ALREADY SCANNED";
-      msgText.style.display = "none";
+      if (result && result.message && result.message !== "Suborders have already been picked up.") {
+        msgText.textContent = `(${result.message})`;
+        msgText.style.display = "inline";
+      } else {
+        msgText.style.display = "none";
+      }
       playWarningSound();
     } else if (type === "CANCELLED") {
       statusBox.classList.add("cancelled");

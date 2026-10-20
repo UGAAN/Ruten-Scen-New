@@ -502,7 +502,7 @@ function isResultSuccessfulOrHandled(res) {
   if (res.isExpired) return false;
 
   const { serverMsg, fullDump } = extractServerDetails(res);
-  const combined = (fullDump + " " + serverMsg).toLowerCase();
+  const sMsgLower = (serverMsg || "").toLowerCase();
 
   // 1. If it's cancelled in this OMS, DO NOT FALLBACK!
   if (checkIsCancelled(fullDump, serverMsg)) {
@@ -510,17 +510,17 @@ function isResultSuccessfulOrHandled(res) {
   }
 
   // 2. If it's already scanned in this OMS, DO NOT FALLBACK!
-  if (res.status === 409 || combined.includes("already") || combined.includes("previously picked") || combined.includes("duplicate")) {
+  if (res.status === 409 || sMsgLower.includes("already") || sMsgLower.includes("previously picked") || sMsgLower.includes("duplicate")) {
     return true;
   }
 
   // 3. If explicit "Not Found" or "Does not exist", then we SHOULD fallback
   if (res.status === 404 || 
-      combined.includes("not found") || 
-      combined.includes("does not exist") || 
-      combined.includes("invalid number") ||
-      combined.includes("invalid awb") ||
-      combined.includes("no order available")) {
+      sMsgLower.includes("not found") || 
+      sMsgLower.includes("does not exist") || 
+      sMsgLower.includes("invalid number") ||
+      sMsgLower.includes("invalid awb") ||
+      sMsgLower.includes("no order available")) {
     return false;
   }
 
@@ -775,10 +775,11 @@ async function recordResult(awb, res, settings) {
   let statusType = "ERROR";
   let { serverMsg, fullDump } = extractServerDetails(res);
   const omsSource = (res && res.oms_source) || "V2";
-  const combined = (fullDump + " " + serverMsg).toLowerCase();
+  const sMsgLower = (serverMsg || "").toLowerCase();
+  const combined = ((fullDump || "") + " " + (serverMsg || "")).toLowerCase();
 
   // 1. Session Expiration
-  if (res.isExpired || res.status === 401 || res.status === 403 || combined.includes("session cookie not found") || combined.includes("not authenticated")) {
+  if (res.isExpired || res.status === 401 || res.status === 403 || sMsgLower.includes("session cookie not found") || sMsgLower.includes("not authenticated") || sMsgLower.includes("unauthenticated")) {
     statusType = "AUTH_EXPIRED";
     serverMsg = `${omsSource} Session Expired (Please Login)`;
   }
@@ -787,17 +788,7 @@ async function recordResult(awb, res, settings) {
     statusType = "CANCELLED";
     serverMsg = "CANCELLED ORDER";
   }
-  // 3. ALREADY SCANNED (Previously Picked)
-  else if (res.status === 409 || combined.includes("already") || combined.includes("previously picked") || combined.includes("duplicate")) {
-    statusType = "ALREADY_SCANNED";
-    if (!serverMsg) serverMsg = "Suborders have already been picked up.";
-  }
-  // 4. NOT FOUND
-  else if (res.status === 404 || combined.includes("not found") || combined.includes("does not exist")) {
-    statusType = "NOT_FOUND";
-    if (!serverMsg) serverMsg = `Order not found in ${omsSource}`;
-  }
-  // 5. HTTP 200 OK
+  // 3. HTTP 200 OK (Clean Success Check)
   else if (res.status === 200) {
     const isError = res.json && (
       res.json.success === false || 
@@ -810,12 +801,36 @@ async function recordResult(awb, res, settings) {
     );
 
     if (isError) {
-      statusType = "ERROR";
-      if (!serverMsg) serverMsg = `${omsSource} Scan Error`;
+      if (sMsgLower.includes("already") || sMsgLower.includes("previously picked") || sMsgLower.includes("duplicate")) {
+        statusType = "ALREADY_SCANNED";
+        if (!serverMsg) serverMsg = "Suborders have already been picked up.";
+      } else if (sMsgLower.includes("not found") || sMsgLower.includes("does not exist")) {
+        statusType = "NOT_FOUND";
+        if (!serverMsg) serverMsg = `Order not found in ${omsSource}`;
+      } else {
+        statusType = "ERROR";
+        if (!serverMsg) serverMsg = `${omsSource} Scan Error`;
+      }
     } else {
-      statusType = "SUCCESS";
-      if (!serverMsg) serverMsg = `${omsSource} Pickup Done`;
+      // 200 OK and no error flag in JSON
+      if (sMsgLower.includes("already picked") || sMsgLower.includes("previously picked") || sMsgLower.includes("already been picked")) {
+        statusType = "ALREADY_SCANNED";
+        if (!serverMsg) serverMsg = "Suborders have already been picked up.";
+      } else {
+        statusType = "SUCCESS";
+        if (!serverMsg) serverMsg = `${omsSource} Pickup Done`;
+      }
     }
+  }
+  // 4. HTTP 409 Conflict (Standard Already Scanned HTTP status)
+  else if (res.status === 409 || sMsgLower.includes("already") || sMsgLower.includes("previously picked") || sMsgLower.includes("duplicate")) {
+    statusType = "ALREADY_SCANNED";
+    if (!serverMsg) serverMsg = "Suborders have already been picked up.";
+  }
+  // 5. HTTP 404 Not Found
+  else if (res.status === 404 || sMsgLower.includes("not found") || sMsgLower.includes("does not exist")) {
+    statusType = "NOT_FOUND";
+    if (!serverMsg) serverMsg = `Order not found in ${omsSource}`;
   }
   // 6. Generic HTTP Error
   else {
