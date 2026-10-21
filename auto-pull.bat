@@ -1,17 +1,22 @@
 @echo off
-cd /d "C:\Ruten Scen New"
+cd /d "%~dp0"
 
-:: 1. Fetch latest changes from GitHub silently
+:: 1. Check if git exists
+where git >nul 2>&1
+if %errorlevel% neq 0 exit /b
+
+:: 2. Fetch latest changes from GitHub silently
 git fetch origin main >nul 2>&1
+if %errorlevel% neq 0 exit /b
 
-:: 2. Check if local commit differs from remote commit
+:: 3. Check if local commit differs from origin/main
 for /f "tokens=*" %%a in ('git rev-parse HEAD 2^>nul') do set LOCAL_HEAD=%%a
-for /f "tokens=*" %%b in ('git rev-parse @{u} 2^>nul') do set REMOTE_HEAD=%%b
+for /f "tokens=*" %%b in ('git rev-parse origin/main 2^>nul') do set REMOTE_HEAD=%%b
 
 if defined REMOTE_HEAD (
     if not "%LOCAL_HEAD%"=="%REMOTE_HEAD%" (
-        echo [%date% %time%] New update detected! Pulling from GitHub... >> "%~dp0auto_sync.log"
-        git pull origin main >> "%~dp0auto_sync.log" 2>&1
+        echo [%date% %time%] New update detected! Resetting to origin/main... >> "%~dp0auto_sync.log"
+        git reset --hard origin/main >> "%~dp0auto_sync.log" 2>&1
         echo %date% %time% - %REMOTE_HEAD% > "%~dp0update_signal.txt"
         echo [%date% %time%] Updated to %REMOTE_HEAD% >> "%~dp0auto_sync.log"
     )

@@ -6,16 +6,19 @@ echo        UGAAN HUB - 1-CLICK GITHUB CODE PUSH
 echo ========================================================
 echo.
 
-cd /d "C:\Ruten Scen New"
+cd /d "%~dp0"
 
-echo [1/3] Adding changed files...
+echo [1/4] Updating signal timestamp...
+echo %date% %time% - v2.0.2 > "%~dp0update_signal.txt"
+
+echo [2/4] Adding changed files...
 git add .
 
-echo [2/3] Creating commit...
+echo [3/4] Creating commit...
 set msg=Update on %date% at %time%
 git commit -m "%msg%"
 
-echo [3/3] Pushing to GitHub (UGAAN/Ruten-Scen-New)...
+echo [4/4] Pushing to GitHub (UGAAN/Ruten-Scen-New)...
 git push origin main
 
 echo.
