@@ -1034,7 +1034,7 @@ function doPost(e) {
         } else {
           if (manualUpdateMsg) {
             manualUpdateMsg.style.color = '#059669';
-            manualUpdateMsg.textContent = '✅ You are running the latest version (v2.0.2)!';
+            manualUpdateMsg.textContent = '✅ You are running the latest version (v2.0.3)!';
           }
         }
       } catch (err) {

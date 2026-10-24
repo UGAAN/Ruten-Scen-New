@@ -497,6 +497,32 @@ function checkIsCancelled(fullDump, serverMsg) {
          combined.includes("already cancelled");
 }
 
+// Thorough check for Already Scanned / Picked / Duplicate keywords
+function checkIsAlreadyScanned(fullDump, serverMsg, status) {
+  if (status === 409) return true;
+  const combined = ((fullDump || "") + " " + (serverMsg || "")).toLowerCase();
+  return combined.includes("already") || 
+         combined.includes("previously") || 
+         combined.includes("duplicate") || 
+         combined.includes("already scanned") || 
+         combined.includes("already_scanned") || 
+         combined.includes("already picked") || 
+         combined.includes("already been picked") || 
+         combined.includes("previously picked") || 
+         combined.includes("order already") || 
+         combined.includes("suborders have already") || 
+         combined.includes("already exists") || 
+         combined.includes("already packed") || 
+         combined.includes("already dispatched") || 
+         combined.includes("already processed") || 
+         combined.includes("order duplicate") || 
+         combined.includes("duplicate scan") || 
+         combined.includes("duplicate awb") ||
+         combined.includes("already in pickup") ||
+         combined.includes("already_picked\":true") ||
+         combined.includes("already_scanned\":true");
+}
+
 function isResultSuccessfulOrHandled(res) {
   if (!res) return false;
   if (res.isExpired) return false;
@@ -510,7 +536,7 @@ function isResultSuccessfulOrHandled(res) {
   }
 
   // 2. If it's already scanned in this OMS, DO NOT FALLBACK!
-  if (res.status === 409 || sMsgLower.includes("already") || sMsgLower.includes("previously picked") || sMsgLower.includes("duplicate")) {
+  if (checkIsAlreadyScanned(fullDump, serverMsg, res.status)) {
     return true;
   }
 
@@ -788,7 +814,14 @@ async function recordResult(awb, res, settings) {
     statusType = "CANCELLED";
     serverMsg = "CANCELLED ORDER";
   }
-  // 3. HTTP 200 OK (Clean Success Check)
+  // 3. ALREADY SCANNED / PICKED (Priority over 200 OK: Never mistake an already scanned parcel for DONE!)
+  else if (checkIsAlreadyScanned(fullDump, serverMsg, res.status)) {
+    statusType = "ALREADY_SCANNED";
+    if (!serverMsg || sMsgLower.includes("pickup done") || sMsgLower.includes("success")) {
+      serverMsg = "Suborders have already been picked up.";
+    }
+  }
+  // 4. HTTP 200 OK (Clean Success Check)
   else if (res.status === 200) {
     const isError = res.json && (
       res.json.success === false || 
@@ -801,10 +834,7 @@ async function recordResult(awb, res, settings) {
     );
 
     if (isError) {
-      if (sMsgLower.includes("already") || sMsgLower.includes("previously picked") || sMsgLower.includes("duplicate")) {
-        statusType = "ALREADY_SCANNED";
-        if (!serverMsg) serverMsg = "Suborders have already been picked up.";
-      } else if (sMsgLower.includes("not found") || sMsgLower.includes("does not exist")) {
+      if (sMsgLower.includes("not found") || sMsgLower.includes("does not exist")) {
         statusType = "NOT_FOUND";
         if (!serverMsg) serverMsg = `Order not found in ${omsSource}`;
       } else {
@@ -812,20 +842,9 @@ async function recordResult(awb, res, settings) {
         if (!serverMsg) serverMsg = `${omsSource} Scan Error`;
       }
     } else {
-      // 200 OK and no error flag in JSON
-      if (sMsgLower.includes("already picked") || sMsgLower.includes("previously picked") || sMsgLower.includes("already been picked")) {
-        statusType = "ALREADY_SCANNED";
-        if (!serverMsg) serverMsg = "Suborders have already been picked up.";
-      } else {
-        statusType = "SUCCESS";
-        if (!serverMsg) serverMsg = `${omsSource} Pickup Done`;
-      }
+      statusType = "SUCCESS";
+      if (!serverMsg) serverMsg = `${omsSource} Pickup Done`;
     }
-  }
-  // 4. HTTP 409 Conflict (Standard Already Scanned HTTP status)
-  else if (res.status === 409 || sMsgLower.includes("already") || sMsgLower.includes("previously picked") || sMsgLower.includes("duplicate")) {
-    statusType = "ALREADY_SCANNED";
-    if (!serverMsg) serverMsg = "Suborders have already been picked up.";
   }
   // 5. HTTP 404 Not Found
   else if (res.status === 404 || sMsgLower.includes("not found") || sMsgLower.includes("does not exist")) {
@@ -838,14 +857,22 @@ async function recordResult(awb, res, settings) {
     if (!serverMsg) serverMsg = `${omsSource} Error ${res.status}`;
   }
 
-  const isSuccess = statusType === "SUCCESS";
-  const isWarning = statusType === "ALREADY_SCANNED";
-  const isCancelled = statusType === "CANCELLED";
   const now = Date.now();
   const timeStr = new Date().toLocaleTimeString('en-IN', { hour12: true });
 
   let logs = settings.scanLogs || [];
   const existingIndex = logs.findIndex(item => item.awb === awb && (now - (item.startTimestamp || item.id || 0) < 15 * 60 * 1000));
+  const todayDuplicateIndex = logs.findIndex(item => item.awb === awb && (item.statusType === "SUCCESS" || item.statusType === "ALREADY_SCANNED"));
+
+  // Secondary Check: If server returned SUCCESS, but this exact AWB was ALREADY marked SUCCESS on this PC today:
+  if (statusType === "SUCCESS" && todayDuplicateIndex !== -1) {
+    statusType = "ALREADY_SCANNED";
+    serverMsg = "Already Scanned Today";
+  }
+
+  const isSuccess = statusType === "SUCCESS";
+  const isWarning = statusType === "ALREADY_SCANNED";
+  const isCancelled = statusType === "CANCELLED";
 
   let startTimestamp = now;
   let startTime = timeStr;
@@ -858,10 +885,9 @@ async function recordResult(awb, res, settings) {
     diffSec = Math.max(1, Math.round((now - startTimestamp) / 1000));
     durationStr = formatSeconds(diffSec);
 
-    // If it was already marked SUCCESS in this packing session, keep it as SUCCESS on closing scan!
-    if (logs[existingIndex].statusType === "SUCCESS" && statusType === "ALREADY_SCANNED") {
-      statusType = "SUCCESS";
-      serverMsg = `Packed (${durationStr})`;
+    // If it was already scanned before, keep it clearly as ALREADY_SCANNED!
+    if (statusType === "ALREADY_SCANNED") {
+      serverMsg = `Already Scanned (${durationStr} ago)`;
     }
 
     logs[existingIndex].endTime = timeStr;
