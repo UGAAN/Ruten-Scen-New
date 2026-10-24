@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ugaan Hub: Return Scan & VMS-Sync",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "All-in-One Return QC Station with Big Image Preview & Auto Flipkart VMS to EliteSecom OMS Pickup Sync with Emergency Cancelled Siren.",
   "permissions": [
     "storage",

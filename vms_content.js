@@ -1,5 +1,5 @@
 /**
- * VMS-Sync: Content Script (v2.0.3)
+ * VMS-Sync: Content Script (v2.0.4)
  * Shows exact EliteSecom server messages with high-visibility badges:
  * [ ✅ DONE ], [ ⚠️ ALREADY SCANNED ], [ ⛔ CANCELLED ], [ ❌ NOT FOUND ]
  */
@@ -564,7 +564,7 @@
             <button id="vms-sync-inline-close" class="vms-sync-btn-icon" style="padding: 3px 6px;">CLOSE</button>
           </div>
           <div style="border-top: 1px dashed #cbd5e1; margin-top: 5px; padding-top: 4px; display: flex; align-items: center; justify-content: space-between;">
-            <span style="font-size: 9px; font-weight: 700; color: #64748b;">Version: 2.0.3</span>
+            <span style="font-size: 9px; font-weight: 700; color: #64748b;">Version: 2.0.4</span>
             <button id="vms-sync-inline-check-update" class="vms-sync-btn-icon" style="background: #3b82f6; color: white; font-weight: bold; padding: 2px 6px; font-size: 9px;" title="Check GitHub for Updates">🔍 Check Update</button>
           </div>
           <div id="vms-sync-inline-update-msg" style="font-size: 9px; font-weight: 600; margin-top: 3px; display: none;"></div>
@@ -962,7 +962,7 @@
             } else {
               if (inlineUpdateMsg) {
                 inlineUpdateMsg.style.color = "#059669";
-                inlineUpdateMsg.textContent = "✅ Latest version v2.0.3";
+                inlineUpdateMsg.textContent = "✅ Latest version v2.0.4";
               }
             }
           } catch (err) {
