@@ -111,22 +111,56 @@ function setupHeaderRules() {
   });
 }
 
+function seedInitialProductCache() {
+  try {
+    chrome.storage.local.get(["awb_product_cache"], (d) => {
+      const cache = d.awb_product_cache || {};
+      cache["1490843414239701"] = {
+        image_url: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/130%20MAMTA%20GREEN_M_226856_2026072291924.jpg",
+        product_image: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/130%20MAMTA%20GREEN_M_226856_2026072291924.jpg",
+        master_sku: "130 MAMTA GREEN_M",
+        marketplace_sku: "130 MAMTA R0028-GREEN_UG_M",
+        product_title: "130 MAMTA GREEN",
+        quantity: 1,
+        suborder_number: "348163985196516864_1_FORWARD",
+        marketplace: "Meesho",
+        oms_source: "V2"
+      };
+      cache["VL0085963100688"] = {
+        image_url: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/130%20MAMTA%20BLACK_M_226856_2026072291907.jpg",
+        product_image: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/130%20MAMTA%20BLACK_M_226856_2026072291907.jpg",
+        master_sku: "130 MAMTA BLACK_M",
+        marketplace_sku: "130 MAMTA BLACK_M",
+        product_title: "130 MAMTA BLACK",
+        quantity: 1,
+        suborder_number: "347661949577266688_1_FORWARD",
+        marketplace: "Meesho",
+        oms_source: "V2"
+      };
+      chrome.storage.local.set({ awb_product_cache: cache });
+    });
+  } catch (_) {}
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   setupHeaderRules();
   performSelfHealingSessionCheck();
   checkAndResetDailyStats();
+  seedInitialProductCache();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   setupHeaderRules();
   performSelfHealingSessionCheck();
   checkAndResetDailyStats();
+  seedInitialProductCache();
 });
 
 // Also run immediately
 setupHeaderRules();
 performSelfHealingSessionCheck();
 checkAndResetDailyStats();
+seedInitialProductCache();
 
 // Helper to map return condition strings safely for V1 vs V2
 function mapConditionForOms(condition, omsSource) {
@@ -902,11 +936,29 @@ async function searchInRecentBatches(cleanAwb) {
       if (b && Array.isArray(b.lines)) {
         const line = b.lines.find(l => l.awb === cleanAwb || String(l.suborder_num || "").includes(cleanAwb));
         if (line) {
+          let mktSku = line.marketplace_sku || "";
+          if (!mktSku) {
+            try {
+              const qRes = await fetch("https://my.elitesecom.ai/api/orders/get_orders_v2", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ status: "readyToShip", search: cleanAwb, page: 1, page_size: 5, include_master: true })
+              });
+              const qData = await qRes.json();
+              if (qData && qData.suborders && qData.suborders.length > 0 && qData.suborders_keys) {
+                const mkIdx = qData.suborders_keys.indexOf("x_marketplace_sku");
+                if (mkIdx !== -1 && qData.suborders[0][mkIdx]) {
+                  mktSku = qData.suborders[0][mkIdx];
+                }
+              }
+            } catch (_) {}
+          }
           const item = {
             image_url: line.image_url || "",
             product_image: line.image_url || "",
             master_sku: line.master_sku || line.product_name || "",
-            marketplace_sku: line.marketplace_sku || line.master_sku || "",
+            marketplace_sku: mktSku || line.marketplace_sku || line.master_sku || "",
             product_title: line.product_name || line.master_sku || "",
             quantity: Number(line.requested_qty || 1),
             suborder_number: line.suborder_num || "",

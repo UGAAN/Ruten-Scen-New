@@ -5,7 +5,7 @@
  */
 
 (function () {
-  console.log("%c[VMS-Sync] Content script v2.0.8 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
+  console.log("%c[VMS-Sync] Content script v2.0.9 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
 
   let recentScansCache = new Map();
   let soundEnabled = true;
@@ -783,16 +783,51 @@
           font-size: 10px;
           font-weight: 700;
           color: #64748b;
+          white-space: nowrap;
+          margin-right: 6px;
         }
         .vms-prod-sku-val {
           font-size: 12px;
           font-weight: 800;
           color: #0f172a;
           cursor: pointer;
-          max-width: 190px;
+          max-width: 175px;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          flex: 1;
+          text-align: right;
+          margin-right: 4px;
+        }
+        .vms-prod-mpsku-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #eff6ff;
+          padding: 4px 7px;
+          border-radius: 5px;
+          border: 1px solid #bfdbfe;
+          margin-top: 2px;
+        }
+        .vms-prod-mpsku-label {
+          font-size: 10px;
+          font-weight: 700;
+          color: #1d4ed8;
+          white-space: nowrap;
+          margin-right: 6px;
+        }
+        .vms-prod-mpsku-val {
+          font-size: 12px;
+          font-weight: 800;
+          color: #1e3a8a;
+          cursor: pointer;
+          max-width: 175px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          flex: 1;
+          text-align: right;
+          margin-right: 4px;
         }
         .vms-prod-copy-btn {
           background: transparent;
@@ -1586,11 +1621,16 @@
 
         <div class="vms-prod-info">
           <div class="vms-prod-sku-row">
-            <span class="vms-prod-sku-label">SKU:</span>
-            <span class="vms-prod-sku-val" id="vms-prod-sku-val" title="Click to copy SKU">-</span>
-            <button class="vms-prod-copy-btn" id="vms-prod-copy-btn" title="Copy SKU">📋</button>
+            <span class="vms-prod-sku-label">Master SKU:</span>
+            <span class="vms-prod-sku-val" id="vms-prod-sku-val" title="Click to copy Master SKU">-</span>
+            <button class="vms-prod-copy-btn" id="vms-prod-copy-btn" title="Copy Master SKU">📋</button>
           </div>
-          <div class="vms-prod-name" id="vms-prod-name">-</div>
+          <div class="vms-prod-mpsku-row" id="vms-prod-mpsku-row">
+            <span class="vms-prod-mpsku-label">MP SKU:</span>
+            <span class="vms-prod-mpsku-val" id="vms-prod-mpsku-val" title="Click to copy MP SKU">-</span>
+            <button class="vms-prod-copy-btn" id="vms-prod-copy-mp-btn" title="Copy MP SKU">📋</button>
+          </div>
+          <div class="vms-prod-name" id="vms-prod-name" style="display: none;">-</div>
           <div class="vms-prod-meta-row">
             <span class="vms-prod-awb" id="vms-prod-awb">AWB: -</span>
             <span class="vms-prod-suborder" id="vms-prod-suborder">-</span>
@@ -1734,7 +1774,7 @@
       });
     }
 
-    // SKU Copy Button
+    // SKU Copy Button (Master SKU)
     const copyBtn = document.getElementById("vms-prod-copy-btn");
     const skuVal = document.getElementById("vms-prod-sku-val");
     if (copyBtn && skuVal) {
@@ -1751,6 +1791,23 @@
       skuVal.addEventListener("click", handleCopy);
     }
 
+    // MP SKU Copy Button
+    const copyMpBtn = document.getElementById("vms-prod-copy-mp-btn");
+    const mpSkuVal = document.getElementById("vms-prod-mpsku-val");
+    if (copyMpBtn && mpSkuVal) {
+      const handleCopyMp = () => {
+        const text = mpSkuVal.textContent.trim();
+        if (text && text !== "-" && text !== "Loading...") {
+          navigator.clipboard.writeText(text).then(() => {
+            copyMpBtn.textContent = "✅";
+            setTimeout(() => { copyMpBtn.textContent = "📋"; }, 1500);
+          }).catch(() => {});
+        }
+      };
+      copyMpBtn.addEventListener("click", handleCopyMp);
+      mpSkuVal.addEventListener("click", handleCopyMp);
+    }
+
     // Zoom Image click
     const imgEl = document.getElementById("vms-prod-img");
     const zoomBtn = document.getElementById("vms-prod-zoom-btn");
@@ -1759,10 +1816,10 @@
       const zImg = document.getElementById("vms-zoom-img");
       const zCap = document.getElementById("vms-zoom-caption");
       const skuText = document.getElementById("vms-prod-sku-val") ? document.getElementById("vms-prod-sku-val").textContent : "";
-      const nameText = document.getElementById("vms-prod-name") ? document.getElementById("vms-prod-name").textContent : "";
+      const mpText = document.getElementById("vms-prod-mpsku-val") ? document.getElementById("vms-prod-mpsku-val").textContent : "";
       if (modal && zImg && imgEl && imgEl.src) {
         zImg.src = imgEl.src;
-        if (zCap) zCap.textContent = `${skuText} - ${nameText}`;
+        if (zCap) zCap.textContent = `Master: ${skuText} | MP: ${mpText}`;
         modal.style.display = "flex";
       }
     };
@@ -1820,6 +1877,7 @@
         const qtyBanner = document.getElementById("vms-prod-qty-banner");
         const qtyText = document.getElementById("vms-prod-qty-text");
         const skuVal = document.getElementById("vms-prod-sku-val");
+        const mpSkuVal = document.getElementById("vms-prod-mpsku-val");
         const prodName = document.getElementById("vms-prod-name");
         const awbEl = document.getElementById("vms-prod-awb");
         const subEl = document.getElementById("vms-prod-suborder");
@@ -1840,6 +1898,7 @@
           qtyText.textContent = "Qty: ...";
         }
         if (skuVal) skuVal.textContent = "Loading...";
+        if (mpSkuVal) mpSkuVal.textContent = "Loading...";
         if (prodName) prodName.textContent = "Searching EliteSecom OMS for product...";
         if (awbEl) awbEl.textContent = `AWB: ${awb}`;
         if (subEl) subEl.textContent = "";
@@ -1869,6 +1928,7 @@
         const qtyBanner = document.getElementById("vms-prod-qty-banner");
         const qtyText = document.getElementById("vms-prod-qty-text");
         const skuVal = document.getElementById("vms-prod-sku-val");
+        const mpSkuVal = document.getElementById("vms-prod-mpsku-val");
         const prodName = document.getElementById("vms-prod-name");
         const awbEl = document.getElementById("vms-prod-awb");
         const subEl = document.getElementById("vms-prod-suborder");
@@ -1933,6 +1993,9 @@
                 skuVal.textContent = cached.master_sku;
                 if (miniSku) miniSku.textContent = `SKU: ${cached.master_sku}`;
               }
+              if (mpSkuVal) {
+                mpSkuVal.textContent = cached.marketplace_sku || cached.master_sku || "-";
+              }
               if (cached.product_title && prodName && (!prodName.textContent || prodName.textContent.includes("Searching"))) {
                 prodName.textContent = cached.product_title;
               }
@@ -1965,6 +2028,9 @@
                   skuVal.textContent = details.master_sku;
                   if (miniSku) miniSku.textContent = `SKU: ${details.master_sku}`;
                 }
+                if (mpSkuVal) {
+                  mpSkuVal.textContent = details.marketplace_sku || details.master_sku || "-";
+                }
                 if (details.product_title && prodName && (!prodName.textContent || prodName.textContent.includes("Searching"))) {
                   prodName.textContent = details.product_title;
                 }
@@ -1978,10 +2044,15 @@
           });
         }
 
-        // SKU
-        const sku = (result && (result.master_sku || result.marketplace_sku)) || awb;
-        if (skuVal) skuVal.textContent = sku;
-        if (miniSku) miniSku.textContent = `SKU: ${sku}`;
+        // Master SKU
+        const masterSku = (result && (result.master_sku || result.sku)) || awb;
+        if (skuVal) skuVal.textContent = masterSku;
+        if (miniSku) miniSku.textContent = `SKU: ${masterSku}`;
+
+        // MP SKU
+        const mpSku = (result && (result.marketplace_sku || result.marketplaceSku)) ||
+                      (result && result.master_sku) || "-";
+        if (mpSkuVal) mpSkuVal.textContent = mpSku;
 
         // Title / Name
         const title = (result && (result.product_title || result.item_title)) || "-";
@@ -2165,6 +2236,7 @@
           const noImg = document.getElementById("vms-prod-no-img");
           const zoomBtn = document.getElementById("vms-prod-zoom-btn");
           const skuVal = document.getElementById("vms-prod-sku-val");
+          const mpSkuVal = document.getElementById("vms-prod-mpsku-val");
           const prodName = document.getElementById("vms-prod-name");
           const qtyBanner = document.getElementById("vms-prod-qty-banner");
           const qtyText = document.getElementById("vms-prod-qty-text");
@@ -2178,6 +2250,9 @@
           }
           if (product.master_sku && skuVal) {
             skuVal.textContent = product.master_sku;
+          }
+          if (mpSkuVal) {
+            mpSkuVal.textContent = product.marketplace_sku || product.master_sku || "-";
           }
           if (product.product_title && prodName) {
             prodName.textContent = product.product_title;
