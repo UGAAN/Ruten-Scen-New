@@ -5,7 +5,7 @@
  */
 
 (function () {
-  console.log("%c[VMS-Sync] Content script v2.1.2 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
+  console.log("%c[VMS-Sync] Content script v2.1.3 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
 
   let recentScansCache = new Map();
   let soundEnabled = true;
@@ -676,35 +676,31 @@
         }
         .vms-prod-size-badge {
           position: absolute !important;
-          top: 6px;
-          left: 6px;
+          top: 7px;
+          left: 7px;
           background: #dc2626 !important; /* Bold Vibrant Red */
           color: #ffffff !important;
           border: 2px solid #ffffff;
-          border-radius: 6px;
-          padding: 3px 8px;
+          border-radius: 7px;
+          padding: 4px 10px;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
           font-weight: 900;
           display: flex;
           align-items: center;
-          gap: 5px;
-          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+          justify-content: center;
+          min-width: 30px;
+          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.55);
           z-index: 10;
           pointer-events: none;
           text-transform: uppercase;
           line-height: 1;
         }
-        .vms-prod-size-lbl {
-          font-size: 10px;
-          font-weight: 800;
-          color: rgba(255, 255, 255, 0.95);
-          letter-spacing: 0.5px;
-        }
         .vms-prod-size-val {
-          font-size: 18px;
+          font-size: 20px;
           font-weight: 900;
           color: #ffffff;
           letter-spacing: 0.5px;
+          line-height: 1;
         }
         .vms-prod-shimmer {
           display: flex;
@@ -1629,7 +1625,6 @@
       <div class="vms-prod-body" id="vms-prod-body">
         <div class="vms-prod-img-box" id="vms-prod-img-box">
           <div class="vms-prod-size-badge" id="vms-prod-size-badge" style="display: none;">
-            <span class="vms-prod-size-lbl">SIZE:</span>
             <span class="vms-prod-size-val" id="vms-prod-size-val">-</span>
           </div>
           <div class="vms-prod-shimmer" id="vms-prod-shimmer" style="display: none;">
