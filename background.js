@@ -764,6 +764,65 @@ async function saveAwbToProductCache(awb, product) {
   } catch (e) {}
 }
 
+// Parser for EliteSecom V2 tabular order structure (/api/orders/get_orders_v2)
+function parseGetOrdersV2Response(data, awb) {
+  if (!data || !data.success) return null;
+  const suborders = data.suborders || [];
+  const masterProducts = data.master_product || [];
+  if (suborders.length === 0 && masterProducts.length === 0) return null;
+
+  const subKeys = data.suborders_keys || [];
+  const masterKeys = data.master_product_keys || [];
+
+  const subNumIdx = subKeys.indexOf("x_suborder_num");
+  const subSkuIdx = subKeys.indexOf("x_master_sku");
+  const subMktSkuIdx = subKeys.indexOf("x_marketplace_sku");
+  const subMktIdx = subKeys.indexOf("x_marketplace");
+  const subQtyIdx = subKeys.indexOf("x_item_quantity");
+  const subAwbIdx = subKeys.indexOf("x_sent_awb_number");
+
+  const mSkuIdx = masterKeys.indexOf("x_sku");
+  const mNameIdx = masterKeys.indexOf("x_product_name");
+  const mImgIdx = masterKeys.indexOf("x_image_url");
+
+  let targetSub = suborders[0] || null;
+  if (suborders.length > 1 && subAwbIdx !== -1) {
+    const match = suborders.find(s => String(s[subAwbIdx] || "").trim() === awb);
+    if (match) targetSub = match;
+  }
+
+  let targetMaster = masterProducts[0] || null;
+  if (targetSub && subSkuIdx !== -1 && masterProducts.length > 1) {
+    const subSku = targetSub[subSkuIdx];
+    const matchMaster = masterProducts.find(m => m[mSkuIdx] === subSku);
+    if (matchMaster) targetMaster = matchMaster;
+  }
+
+  const img = (targetMaster && mImgIdx !== -1 && targetMaster[mImgIdx]) || "";
+  const sku = (targetMaster && mSkuIdx !== -1 && targetMaster[mSkuIdx]) ||
+              (targetSub && subSkuIdx !== -1 && targetSub[subSkuIdx]) || "";
+  const title = (targetMaster && mNameIdx !== -1 && targetMaster[mNameIdx]) || "";
+  const qty = (targetSub && subQtyIdx !== -1 && targetSub[subQtyIdx]) || 1;
+  const suborder = (targetSub && subNumIdx !== -1 && targetSub[subNumIdx]) || "";
+  const mkt = (targetSub && subMktIdx !== -1 && targetSub[subMktIdx]) || "Flipkart";
+  const mktSku = (targetSub && subMktSkuIdx !== -1 && targetSub[subMktSkuIdx]) || "";
+
+  if (img || sku) {
+    return {
+      image_url: img,
+      product_image: img,
+      master_sku: sku,
+      marketplace_sku: mktSku || sku,
+      product_title: title || sku,
+      quantity: Number(qty) || 1,
+      suborder_number: suborder,
+      marketplace: mkt,
+      oms_source: "V2"
+    };
+  }
+  return null;
+}
+
 // Deep recursive extractor for ANY JSON structure (arrays, nested objects, data[0].items, etc.)
 function extractProductFromAnyPayload(obj, depth = 0) {
   if (!obj || depth > 6) return null;
@@ -872,11 +931,62 @@ async function fetchPickupProductDetails(cleanAwb, priority = "auto_v2_first", a
 
   // Tier 3: Query EliteSecom V2 (my.elitesecom.ai)
   async function queryV2() {
+    // 🚀 Primary V2 Forward Orders Search via get_orders_v2 (Full Master Product & High-Res S3 Photos)
+    const v2Statuses = ["readyToShip", "printed", "confirmed", "newOrder", "cancelled"];
+    for (const st of v2Statuses) {
+      try {
+        const payload = {
+          status: st,
+          search: cleanAwb,
+          page: 1,
+          page_size: 10,
+          include_master: true
+        };
+        const res = await fetch("https://my.elitesecom.ai/api/orders/get_orders_v2", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload)
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (e) {}
+
+        const isExpired = isV2SessionExpired(res.status, text, data);
+        if (isExpired && autoLogin) {
+          const email = creds.v2_login_email || creds.v2LoginEmail;
+          const pass = creds.v2_login_password || creds.v2LoginPassword;
+          if (email && pass) {
+            const loginRes = await performV2Login(email, pass);
+            if (loginRes.success) {
+              const retryRes = await fetch("https://my.elitesecom.ai/api/orders/get_orders_v2", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify(payload)
+              });
+              try { data = await retryRes.json(); } catch (e) {}
+            }
+          }
+        }
+
+        if (data && data.success) {
+          const parsed = parseGetOrdersV2Response(data, cleanAwb);
+          if (parsed && (parsed.image_url || parsed.master_sku)) {
+            console.log(`[VMS-Sync] Found order in V2 get_orders_v2 (status: ${st}):`, parsed);
+            saveAwbToProductCache(cleanAwb, parsed);
+            return parsed;
+          }
+        }
+      } catch (err) {
+        console.warn("[VMS-Sync] get_orders_v2 error:", err);
+      }
+    }
+
+    // Secondary fallback endpoints on V2
     const v2Endpoints = [
       { url: "https://my.elitesecom.ai/api/scanorders/pickup/get_pickup_orders_data", body: { awbNumber: cleanAwb } },
       { url: "https://my.elitesecom.ai/api/scanorders/pickup/get_pickup_orders_data", body: { search_type: "forward_awb", value: cleanAwb } },
-      { url: "https://my.elitesecom.ai/api/scanorders/return/get_return_orders_data", body: { search_type: "forward_awb", value: cleanAwb } },
-      { url: "https://my.elitesecom.ai/api/scanorders/return/get_return_orders_data", body: { search_type: "suborder_number", value: cleanAwb } },
       { url: "https://my.elitesecom.ai/api/scanorders/return/get_return_orders_data", body: { search_type: "return_awb", value: cleanAwb } }
     ];
 

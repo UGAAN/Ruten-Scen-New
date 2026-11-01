@@ -9,7 +9,7 @@ echo.
 cd /d "%~dp0"
 
 echo [1/4] Updating signal timestamp...
-echo %date% %time% - v2.0.6 > "%~dp0update_signal.txt"
+echo %date% %time% - v2.0.7 > "%~dp0update_signal.txt"
 
 echo [2/4] Adding changed files...
 git add .
