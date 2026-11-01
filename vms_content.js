@@ -5,7 +5,7 @@
  */
 
 (function () {
-  console.log("%c[VMS-Sync] Content script v2.1.3 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
+  console.log("%c[VMS-Sync] Content script v2.1.4 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
 
   let recentScansCache = new Map();
   let soundEnabled = true;
@@ -882,22 +882,6 @@
           color: #64748b;
           font-weight: 600;
         }
-        .vms-prod-mini-bar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 6px 10px;
-          background: #ffffff;
-          font-size: 11px;
-          font-weight: 700;
-        }
-        .vms-prod-mini-pill {
-          background: #eff6ff;
-          color: #1d4ed8;
-          padding: 1px 6px;
-          border-radius: 4px;
-          font-size: 10px;
-        }
 
         /* Fullscreen Zoom Modal */
         #vms-prod-zoom-modal {
@@ -1617,7 +1601,6 @@
           <span class="vms-prod-oms-badge" id="vms-prod-oms-badge">V2</span>
         </div>
         <div class="vms-prod-actions">
-          <button class="vms-prod-btn" id="vms-prod-min-btn" title="Minimize / Expand">−</button>
           <button class="vms-prod-btn close" id="vms-prod-close-btn" title="Close Preview">✕</button>
         </div>
       </div>
@@ -1666,12 +1649,6 @@
           </div>
         </div>
       </div>
-
-      <div class="vms-prod-mini-bar" id="vms-prod-mini-bar" style="display: none;">
-        <span id="vms-prod-mini-sku">SKU: -</span>
-        <span id="vms-prod-mini-qty" class="vms-prod-mini-pill">Qty: 1</span>
-        <button class="vms-prod-btn expand" id="vms-prod-expand-btn" title="Expand Preview">□</button>
-      </div>
     `;
 
     document.body.appendChild(prodOverlay);
@@ -1717,16 +1694,11 @@
       }
     } catch (e) {}
 
-    // Restore minimized state
+    // Ensure card is always fully expanded and clear any previous minimized state
     try {
-      if (localStorage.getItem("vms_prod_card_minimized") === "true") {
-        const bodyEl = document.getElementById("vms-prod-body");
-        const miniEl = document.getElementById("vms-prod-mini-bar");
-        if (bodyEl && miniEl) {
-          bodyEl.style.display = "none";
-          miniEl.style.display = "flex";
-        }
-      }
+      localStorage.removeItem("vms_prod_card_minimized");
+      const bodyEl = document.getElementById("vms-prod-body");
+      if (bodyEl) bodyEl.style.display = "flex";
     } catch (e) {}
 
     // Dragging setup for #vms-product-overlay
@@ -1774,28 +1746,10 @@
       });
     }
 
-    // Card minimize / expand buttons
-    const minBtn = document.getElementById("vms-prod-min-btn");
-    const expandBtn = document.getElementById("vms-prod-expand-btn");
+    // Card close button
     const closeBtn = document.getElementById("vms-prod-close-btn");
     const bodyEl = document.getElementById("vms-prod-body");
-    const miniEl = document.getElementById("vms-prod-mini-bar");
-
-    if (minBtn && bodyEl && miniEl) {
-      minBtn.addEventListener("click", () => {
-        bodyEl.style.display = "none";
-        miniEl.style.display = "flex";
-        try { localStorage.setItem("vms_prod_card_minimized", "true"); } catch (e) {}
-      });
-    }
-
-    if (expandBtn && bodyEl && miniEl) {
-      expandBtn.addEventListener("click", () => {
-        bodyEl.style.display = "flex";
-        miniEl.style.display = "none";
-        try { localStorage.setItem("vms_prod_card_minimized", "false"); } catch (e) {}
-      });
-    }
+    if (bodyEl) bodyEl.style.display = "flex";
 
     if (closeBtn) {
       closeBtn.addEventListener("click", () => {
@@ -1927,6 +1881,9 @@
         overlay.style.display = "block";
         overlay.classList.remove("cancelled");
 
+        const bodyEl = document.getElementById("vms-prod-body");
+        if (bodyEl) bodyEl.style.display = "flex";
+
         const sizeBadge = document.getElementById("vms-prod-size-badge");
         if (sizeBadge) sizeBadge.style.display = "none";
 
@@ -1943,8 +1900,6 @@
         const prodName = document.getElementById("vms-prod-name");
         const awbEl = document.getElementById("vms-prod-awb");
         const subEl = document.getElementById("vms-prod-suborder");
-        const miniSku = document.getElementById("vms-prod-mini-sku");
-        const miniQty = document.getElementById("vms-prod-mini-qty");
 
         if (shimmer) shimmer.style.display = "flex";
         if (imgEl) { imgEl.style.display = "none"; imgEl.src = ""; }
@@ -1964,8 +1919,6 @@
         if (prodName) prodName.textContent = "Searching EliteSecom OMS for product...";
         if (awbEl) awbEl.textContent = `AWB: ${awb}`;
         if (subEl) subEl.textContent = "";
-        if (miniSku) miniSku.textContent = `AWB: ${awb}`;
-        if (miniQty) miniQty.textContent = "Checking...";
       });
     } catch (e) {}
   }
@@ -1980,6 +1933,8 @@
         if (!overlay) return;
 
         overlay.style.display = "block";
+        const bodyEl = document.getElementById("vms-prod-body");
+        if (bodyEl) bodyEl.style.display = "flex";
 
         const shimmer = document.getElementById("vms-prod-shimmer");
         const imgEl = document.getElementById("vms-prod-img");
@@ -1995,8 +1950,6 @@
         const awbEl = document.getElementById("vms-prod-awb");
         const subEl = document.getElementById("vms-prod-suborder");
         const omsBadge = document.getElementById("vms-prod-oms-badge");
-        const miniSku = document.getElementById("vms-prod-mini-sku");
-        const miniQty = document.getElementById("vms-prod-mini-qty");
 
         if (shimmer) shimmer.style.display = "none";
 
@@ -2053,7 +2006,6 @@
               }
               if (cached.master_sku && skuVal && (!skuVal.textContent || skuVal.textContent === "-" || skuVal.textContent === "Loading..." || skuVal.textContent === awb)) {
                 skuVal.textContent = cached.master_sku;
-                if (miniSku) miniSku.textContent = `SKU: ${cached.master_sku}`;
               }
               if (mpSkuVal) {
                 mpSkuVal.textContent = cached.marketplace_sku || cached.master_sku || "-";
@@ -2064,7 +2016,6 @@
               if (cached.quantity && cached.quantity > 1 && qtyBanner && qtyText) {
                 qtyBanner.className = "vms-prod-qty-banner multi";
                 qtyText.textContent = `🚨 MULTI-QTY: ${cached.quantity} PCS — PACK ALL!`;
-                if (miniQty) miniQty.textContent = `Qty: ${cached.quantity}`;
               }
               renderSizeBadge(cached);
               return;
@@ -2089,7 +2040,6 @@
                 }
                 if (details.master_sku && skuVal && (!skuVal.textContent || skuVal.textContent === "-" || skuVal.textContent === "Loading..." || skuVal.textContent === awb)) {
                   skuVal.textContent = details.master_sku;
-                  if (miniSku) miniSku.textContent = `SKU: ${details.master_sku}`;
                 }
                 if (mpSkuVal) {
                   mpSkuVal.textContent = details.marketplace_sku || details.master_sku || "-";
@@ -2100,7 +2050,6 @@
                 if (details.quantity && details.quantity > 1 && qtyBanner && qtyText) {
                   qtyBanner.className = "vms-prod-qty-banner multi";
                   qtyText.textContent = `🚨 MULTI-QTY: ${details.quantity} PCS — PACK ALL!`;
-                  if (miniQty) miniQty.textContent = `Qty: ${details.quantity}`;
                 }
                 renderSizeBadge(details);
               }
@@ -2111,7 +2060,6 @@
         // Master SKU
         const masterSku = (result && (result.master_sku || result.sku)) || awb;
         if (skuVal) skuVal.textContent = masterSku;
-        if (miniSku) miniSku.textContent = `SKU: ${masterSku}`;
 
         // MP SKU
         const mpSku = (result && (result.marketplace_sku || result.marketplaceSku)) ||
@@ -2142,7 +2090,6 @@
             qtyText.textContent = `📦 Quantity: 1 Pc`;
           }
         }
-        if (miniQty) miniQty.textContent = `Qty: ${qty}`;
       });
     } catch (e) {
       console.warn("[VMS-Sync] updateProductCard error:", e);
