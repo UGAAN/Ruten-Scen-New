@@ -167,6 +167,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Pickup Elements
   const selectPriority = document.getElementById('select-priority');
   const toggleSync = document.getElementById('toggle-sync');
+  const toggleVmsImgPreview = document.getElementById('toggle-vms-image-preview');
   const statTotal = document.getElementById('stat-total');
   const statSuccess = document.getElementById('stat-success');
   const statCancelled = document.getElementById('stat-cancelled');
@@ -304,6 +305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateVolumeUI(vol);
 
     if (toggleSync) toggleSync.checked = data.syncEnabled !== false;
+    if (toggleVmsImgPreview) toggleVmsImgPreview.checked = data.vmsImagePreviewEnabled !== false;
     if (selectPriority) selectPriority.value = data.omsPriority || (data.oms_priority === 'v1' ? 'auto_v1_first' : 'auto_v2_first');
     if (toggleWidget) toggleWidget.checked = data.floating_widget_enabled !== false;
 
@@ -623,6 +625,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  if (toggleVmsImgPreview) {
+    toggleVmsImgPreview.addEventListener('change', () => {
+      chrome.storage.local.set({ vmsImagePreviewEnabled: toggleVmsImgPreview.checked });
+    });
+  }
+
   // Manual Test Pickup Scan
   function performTestPickupScan() {
     let awb = testInput.value.replace(/^[(\s]+|[)\s]+$/g, '').trim();
@@ -644,22 +652,38 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const omsTag = res.omsSource ? `[${res.omsSource}] ` : '';
+      let statusHtml = '';
       if (res.statusType === 'CANCELLED') {
         testResultBox.className = 'test-result err cancelled-box';
-        testResultBox.innerHTML = `⛔ <strong>CANCELLED ORDER:</strong> ${omsTag}${res.message || 'Order is Cancelled! DO NOT PACK!'}`;
+        statusHtml = `⛔ <strong>CANCELLED ORDER:</strong> ${omsTag}${res.message || 'Order is Cancelled! DO NOT PACK!'}`;
         playSound('cancelled');
       } else if (res.success) {
         testResultBox.className = 'test-result ok';
-        testResultBox.textContent = `✅ ${omsTag}${res.message || 'Pickup OK'}`;
+        statusHtml = `✅ ${omsTag}${res.message || 'Pickup OK'}`;
         playSound('success');
       } else if (res.statusType === 'ALREADY_SCANNED') {
         testResultBox.className = 'test-result warn';
-        testResultBox.textContent = `⚠️ ${omsTag}${res.message || 'Already Scanned'}`;
+        statusHtml = `⚠️ ${omsTag}${res.message || 'Already Scanned'}`;
         playSound('warning');
       } else {
         testResultBox.className = 'test-result err';
-        testResultBox.textContent = `❌ ${omsTag}${res.message || 'Error'}`;
+        statusHtml = `❌ ${omsTag}${res.message || 'Error'}`;
         playSound('error');
+      }
+
+      if (res.image_url) {
+        testResultBox.innerHTML = `
+          <div>${statusHtml}</div>
+          <div style="display:flex; gap:8px; align-items:center; margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,0,0,0.08); text-align:left;">
+            <img src="${res.image_url}" style="width:44px; height:44px; object-fit:contain; border-radius:4px; border:1px solid #cbd5e1; background:#fff;" />
+            <div style="font-size:11px; overflow:hidden;">
+              <div style="font-weight:700; color:#0f172a;">${res.master_sku || res.awb}</div>
+              <div style="color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Qty: ${res.quantity || 1} | ${res.product_title || ''}</div>
+            </div>
+          </div>
+        `;
+      } else {
+        testResultBox.innerHTML = statusHtml;
       }
 
       // Refresh pickup counters
@@ -736,7 +760,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     csv += `"Total Working Duration:","${totalDurationStr}","","","","","","",""\r\n`;
     csv += `"Total Orders:","${logs.length}","Successful:","${successCount}","Failed:","${failedCount}","","",""\r\n`;
     csv += `"","","","","","","","",""\r\n`;
-    csv += `"No","AWB Number","OMS Platform","Start Time","End Time","Duration","Video Upload","Status","Message"\r\n`;
+    csv += `"No","AWB Number","OMS Platform","Master SKU","Quantity","Product Title","Image URL","Start Time","End Time","Duration","Video Upload","Status","Message"\r\n`;
 
     logs.forEach((log, index) => {
       const no = logs.length - index;
@@ -744,6 +768,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         no,
         `"${log.awb || ''}"`,
         `"${log.omsSource || 'V2'}"`,
+        `"${(log.master_sku || '').replace(/"/g, '""')}"`,
+        Number(log.quantity || 1),
+        `"${(log.product_title || '').replace(/"/g, '""')}"`,
+        `"${(log.image_url || log.product_image || '').replace(/"/g, '""')}"`,
         `"${log.startTime || log.time || '-'}"`,
         `"${log.endTime || log.startTime || '-'}"`,
         `"${log.duration || (log.durationSec ? formatSeconds(log.durationSec) : '-')}"`,

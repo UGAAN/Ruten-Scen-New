@@ -224,10 +224,14 @@
   function syncOverlayVisibility() {
     const shouldShow = isPackingScreenActive();
     const overlay = document.getElementById("vms-sync-overlay");
+    const prodOverlay = document.getElementById("vms-product-overlay");
 
     if (!shouldShow) {
       if (overlay && overlay.style.display !== "none") {
         overlay.style.display = "none";
+      }
+      if (prodOverlay && prodOverlay.style.display !== "none") {
+        prodOverlay.style.display = "none";
       }
       return;
     }
@@ -236,6 +240,10 @@
       createOverlay();
     } else if (overlay.style.display === "none") {
       overlay.style.display = "block";
+    }
+
+    if (!prodOverlay) {
+      createProductPreviewOverlay();
     }
   }
 
@@ -512,6 +520,7 @@
         }
         .vms-sync-card.minimized .vms-sync-status-box,
         .vms-sync-card.minimized #vms-sync-inline-settings,
+        .vms-sync-card.minimized #vms-sync-img-toggle,
         .vms-sync-card.minimized #vms-sync-csv-btn,
         .vms-sync-card.minimized #vms-sync-settings-btn,
         .vms-sync-card.minimized #vms-sync-sound-toggle {
@@ -526,6 +535,363 @@
         #vms-sync-inline-settings button,
         #vms-sync-retry-btn {
           cursor: pointer !important;
+        }
+
+        /* ========================================================================= */
+        /* VMS PRODUCT VERIFICATION & BIG IMAGE PREVIEW STYLES                       */
+        /* ========================================================================= */
+        #vms-product-overlay {
+          position: fixed !important;
+          top: 72px;
+          right: 20px;
+          width: 290px;
+          max-width: 92vw;
+          z-index: 2147483646 !important;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          background: #ffffff;
+          border-radius: 12px;
+          border: 1.5px solid #cbd5e1;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+          overflow: hidden;
+          transition: box-shadow 0.25s ease, border-color 0.25s ease;
+          user-select: none;
+          box-sizing: border-box;
+        }
+        #vms-product-overlay.cancelled {
+          border-color: #dc2626 !important;
+          box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4), 0 12px 28px rgba(220, 38, 38, 0.3) !important;
+          animation: vms-prod-cancelled-glow 0.8s infinite alternate !important;
+        }
+        @keyframes vms-prod-cancelled-glow {
+          0% { box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.4); }
+          100% { box-shadow: 0 0 18px 4px rgba(220, 38, 38, 0.8); }
+        }
+        .vms-prod-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #0f172a;
+          color: #f8fafc;
+          padding: 7px 10px;
+          cursor: grab;
+          font-weight: 700;
+          font-size: 11px;
+          border-bottom: 1px solid #1e293b;
+          box-sizing: border-box;
+        }
+        .vms-prod-header:active {
+          cursor: grabbing;
+        }
+        .vms-prod-title-group {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          overflow: hidden;
+        }
+        .vms-prod-oms-badge {
+          background: #2563eb;
+          color: #ffffff;
+          font-size: 9px;
+          font-weight: 800;
+          padding: 1px 5px;
+          border-radius: 4px;
+          letter-spacing: 0.3px;
+        }
+        .vms-prod-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .vms-prod-btn {
+          background: rgba(255, 255, 255, 0.14);
+          color: #ffffff;
+          border: none;
+          border-radius: 4px;
+          width: 20px;
+          height: 20px;
+          font-size: 11px;
+          font-weight: bold;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer !important;
+          transition: background 0.15s ease;
+        }
+        .vms-prod-btn:hover {
+          background: rgba(255, 255, 255, 0.32);
+        }
+        .vms-prod-btn.close:hover {
+          background: #dc2626;
+        }
+        .vms-prod-body {
+          padding: 8px 10px 10px 10px;
+          background: #ffffff;
+          display: flex;
+          flex-direction: column;
+          gap: 7px;
+          box-sizing: border-box;
+        }
+        .vms-prod-img-box {
+          position: relative;
+          width: 100%;
+          height: 200px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+        }
+        .vms-prod-img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+          background: #ffffff;
+          transition: transform 0.2s ease;
+          cursor: pointer;
+        }
+        .vms-prod-img:hover {
+          transform: scale(1.04);
+        }
+        .vms-prod-zoom-btn {
+          position: absolute;
+          bottom: 6px;
+          right: 6px;
+          background: rgba(15, 23, 42, 0.82);
+          color: #ffffff;
+          border: none;
+          border-radius: 4px;
+          padding: 3px 7px;
+          font-size: 10px;
+          font-weight: 600;
+          cursor: pointer !important;
+          opacity: 0.88;
+          transition: opacity 0.15s ease;
+        }
+        .vms-prod-zoom-btn:hover {
+          opacity: 1;
+          background: #2563eb;
+        }
+        .vms-prod-shimmer {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          color: #64748b;
+          font-size: 11px;
+          font-weight: 600;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+          background-size: 200% 100%;
+          animation: vms-prod-shimmer 1.5s infinite;
+        }
+        @keyframes vms-prod-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .vms-prod-spinner {
+          width: 24px;
+          height: 24px;
+          border: 3px solid #cbd5e1;
+          border-top-color: #3b82f6;
+          border-radius: 50%;
+          animation: vms-spin 0.8s linear infinite;
+        }
+        .vms-prod-no-img {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 4px;
+          color: #94a3b8;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .vms-prod-status-banner {
+          padding: 5px 8px;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 700;
+          text-align: center;
+          letter-spacing: 0.2px;
+          background: #eff6ff;
+          color: #1d4ed8;
+          border: 1px solid #bfdbfe;
+        }
+        .vms-prod-status-banner.success {
+          background: #ecfdf5;
+          color: #065f46;
+          border-color: #a7f3d0;
+        }
+        .vms-prod-status-banner.warning {
+          background: #fffbeb;
+          color: #92400e;
+          border-color: #fde68a;
+        }
+        .vms-prod-status-banner.cancelled {
+          background: #fef2f2 !important;
+          color: #991b1b !important;
+          border-color: #fecaca !important;
+          animation: vms-prod-status-pulse 0.7s infinite alternate;
+        }
+        @keyframes vms-prod-status-pulse {
+          0% { background: #fee2e2; }
+          100% { background: #ef4444; color: #ffffff; }
+        }
+        .vms-prod-qty-banner {
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #f1f5f9;
+          color: #334155;
+        }
+        .vms-prod-qty-banner.multi {
+          background: #fef3c7 !important;
+          color: #92400e !important;
+          border: 1.5px dashed #f59e0b !important;
+          font-size: 11px !important;
+          font-weight: 800 !important;
+          animation: vms-prod-qty-pulse 1s infinite alternate;
+        }
+        @keyframes vms-prod-qty-pulse {
+          0% { transform: scale(0.99); }
+          100% { transform: scale(1.02); }
+        }
+        .vms-prod-info {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .vms-prod-sku-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #f8fafc;
+          padding: 4px 7px;
+          border-radius: 5px;
+          border: 1px solid #e2e8f0;
+        }
+        .vms-prod-sku-label {
+          font-size: 10px;
+          font-weight: 700;
+          color: #64748b;
+        }
+        .vms-prod-sku-val {
+          font-size: 12px;
+          font-weight: 800;
+          color: #0f172a;
+          cursor: pointer;
+          max-width: 190px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .vms-prod-copy-btn {
+          background: transparent;
+          border: none;
+          cursor: pointer !important;
+          font-size: 11px;
+          padding: 0 2px;
+          opacity: 0.7;
+        }
+        .vms-prod-copy-btn:hover {
+          opacity: 1;
+        }
+        .vms-prod-name {
+          font-size: 11px;
+          color: #334155;
+          line-height: 1.35;
+          max-height: 30px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-weight: 500;
+        }
+        .vms-prod-meta-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 10px;
+          color: #64748b;
+          font-weight: 600;
+        }
+        .vms-prod-mini-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 10px;
+          background: #ffffff;
+          font-size: 11px;
+          font-weight: 700;
+        }
+        .vms-prod-mini-pill {
+          background: #eff6ff;
+          color: #1d4ed8;
+          padding: 1px 6px;
+          border-radius: 4px;
+          font-size: 10px;
+        }
+
+        /* Fullscreen Zoom Modal */
+        #vms-prod-zoom-modal {
+          position: fixed !important;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(0, 0, 0, 0.88);
+          z-index: 2147483647 !important;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: zoom-out;
+        }
+        .vms-zoom-content {
+          position: relative;
+          max-width: 85vw;
+          max-height: 85vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          cursor: default;
+        }
+        .vms-zoom-content img {
+          max-width: 85vw;
+          max-height: 80vh;
+          object-fit: contain;
+          border-radius: 8px;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+          background: #ffffff;
+        }
+        .vms-zoom-close {
+          position: absolute;
+          top: -34px;
+          right: 0;
+          color: #ffffff;
+          font-size: 26px;
+          font-weight: bold;
+          cursor: pointer !important;
+          background: rgba(255, 255, 255, 0.2);
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .vms-zoom-caption {
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 700;
+          margin-top: 8px;
+          text-align: center;
+          text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
         }
       </style>
       <div class="vms-sync-card" id="vms-sync-box">
@@ -548,6 +914,7 @@
             <span class="vms-sync-msg" id="vms-sync-msg-text" style="display: none;"></span>
           </div>
           <div class="vms-sync-controls">
+            <button class="vms-sync-btn-icon" id="vms-sync-img-toggle" title="Toggle Product Image Preview (🖼️)">🖼️</button>
             <button class="vms-sync-btn-icon" id="vms-sync-csv-btn" title="Download Excel">📥</button>
             <button class="vms-sync-btn-icon" id="vms-sync-settings-btn" title="API Settings">⚙️</button>
             <button class="vms-sync-btn-icon" id="vms-sync-sound-toggle" title="Sound Toggle">🔊</button>
@@ -801,11 +1168,15 @@
       csv += `"Total Working Duration:","${totalDurationStr}","","","","","",""\r\n`;
       csv += `"Total Orders:","${logs.length}","Successful:","${successCount}","Failed:","${failedCount}","",""\r\n`;
       csv += `"","","","","","","",""\r\n`;
-      csv += `"No","AWB Number","Start Time","End Time","Duration","Video Upload","Status","Message"\r\n`;
+      csv += `"No","AWB Number","Master SKU","Quantity","Product Title","Image URL","Start Time","End Time","Duration","Video Upload","Status","Message"\r\n`;
 
       logs.forEach((log, index) => {
         const no = logs.length - index;
         const awb = log.awb || "";
+        const sku = (log.master_sku || "").replace(/"/g, '""');
+        const qty = log.quantity || 1;
+        const title = (log.product_title || "").replace(/"/g, '""');
+        const imgUrl = (log.image_url || log.product_image || "").replace(/"/g, '""');
         const sTime = log.startTime || log.time || "-";
         const eTime = log.endTime || log.startTime || log.time || "-";
         const duration = log.duration || (log.durationSec ? formatSeconds(log.durationSec) : "-");
@@ -816,6 +1187,10 @@
         const row = [
           no,
           `"${awb}"`,
+          `"${sku}"`,
+          qty,
+          `"${title}"`,
+          `"${imgUrl}"`,
           `"${sTime}"`,
           `"${eTime}"`,
           `"${duration}"`,
@@ -831,6 +1206,21 @@
         filename: `VMS_OMS_Scans_${dateStr}.csv`,
         isEmpty: false
       };
+    }
+
+    const imgToggleBtn = document.getElementById("vms-sync-img-toggle");
+    if (imgToggleBtn) {
+      imgToggleBtn.addEventListener("click", () => {
+        createProductPreviewOverlay();
+        const pOverlay = document.getElementById("vms-product-overlay");
+        if (pOverlay) {
+          if (pOverlay.style.display === "none") {
+            pOverlay.style.display = "block";
+          } else {
+            pOverlay.style.display = "none";
+          }
+        }
+      });
     }
 
     const csvBtn = document.getElementById("vms-sync-csv-btn");
@@ -1146,6 +1536,481 @@
     } catch (err) {}
   }
 
+  // =========================================================================
+  // LIVE PRODUCT VERIFICATION & BIG IMAGE PREVIEW COMPONENT
+  // =========================================================================
+  function createProductPreviewOverlay() {
+    if (document.getElementById("vms-product-overlay")) return;
+    if (!document.body) return;
+
+    const prodOverlay = document.createElement("div");
+    prodOverlay.id = "vms-product-overlay";
+    prodOverlay.className = "vms-prod-card";
+    prodOverlay.style.display = "none"; // Shown when first scan happens or when image button is toggled
+
+    prodOverlay.innerHTML = `
+      <div class="vms-prod-header" id="vms-prod-header">
+        <div class="vms-prod-title-group">
+          <span style="font-size: 13px;">📦</span>
+          <span style="font-weight: 700; letter-spacing: -0.2px;">Product Verification</span>
+          <span class="vms-prod-oms-badge" id="vms-prod-oms-badge">V2</span>
+        </div>
+        <div class="vms-prod-actions">
+          <button class="vms-prod-btn" id="vms-prod-min-btn" title="Minimize / Expand">−</button>
+          <button class="vms-prod-btn close" id="vms-prod-close-btn" title="Close Preview">✕</button>
+        </div>
+      </div>
+
+      <div class="vms-prod-body" id="vms-prod-body">
+        <div class="vms-prod-img-box" id="vms-prod-img-box">
+          <div class="vms-prod-shimmer" id="vms-prod-shimmer" style="display: none;">
+            <div class="vms-prod-spinner"></div>
+            <span>Fetching Product Photo...</span>
+          </div>
+          <img id="vms-prod-img" class="vms-prod-img" src="" alt="Product Photo" style="display: none;" />
+          <div class="vms-prod-no-img" id="vms-prod-no-img" style="display: none;">
+            <span style="font-size: 32px;">🖼️</span>
+            <span id="vms-prod-no-img-text">No Image Found in OMS</span>
+            <button class="vms-prod-retry-btn" id="vms-prod-retry-btn" type="button" style="margin-top: 6px; padding: 4px 10px; font-size: 11px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">🔍 Deep Search OMS</button>
+          </div>
+          <button class="vms-prod-zoom-btn" id="vms-prod-zoom-btn" title="View Fullscreen" style="display: none;">🔍 Zoom</button>
+        </div>
+
+        <div class="vms-prod-status-banner" id="vms-prod-status-banner">
+          <span id="vms-prod-status-text">Ready to Scan</span>
+        </div>
+
+        <div class="vms-prod-qty-banner" id="vms-prod-qty-banner">
+          <span id="vms-prod-qty-text">Qty: 1</span>
+        </div>
+
+        <div class="vms-prod-info">
+          <div class="vms-prod-sku-row">
+            <span class="vms-prod-sku-label">SKU:</span>
+            <span class="vms-prod-sku-val" id="vms-prod-sku-val" title="Click to copy SKU">-</span>
+            <button class="vms-prod-copy-btn" id="vms-prod-copy-btn" title="Copy SKU">📋</button>
+          </div>
+          <div class="vms-prod-name" id="vms-prod-name">-</div>
+          <div class="vms-prod-meta-row">
+            <span class="vms-prod-awb" id="vms-prod-awb">AWB: -</span>
+            <span class="vms-prod-suborder" id="vms-prod-suborder">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="vms-prod-mini-bar" id="vms-prod-mini-bar" style="display: none;">
+        <span id="vms-prod-mini-sku">SKU: -</span>
+        <span id="vms-prod-mini-qty" class="vms-prod-mini-pill">Qty: 1</span>
+        <button class="vms-prod-btn expand" id="vms-prod-expand-btn" title="Expand Preview">□</button>
+      </div>
+    `;
+
+    document.body.appendChild(prodOverlay);
+
+    // Zoom modal element
+    let zoomModal = document.getElementById("vms-prod-zoom-modal");
+    if (!zoomModal) {
+      zoomModal = document.createElement("div");
+      zoomModal.id = "vms-prod-zoom-modal";
+      zoomModal.style.display = "none";
+      zoomModal.innerHTML = `
+        <div class="vms-zoom-content" id="vms-zoom-content">
+          <span class="vms-zoom-close" id="vms-zoom-close">✕</span>
+          <img id="vms-zoom-img" src="" alt="Full Zoom Image" />
+          <div class="vms-zoom-caption" id="vms-zoom-caption">-</div>
+        </div>
+      `;
+      document.body.appendChild(zoomModal);
+
+      zoomModal.addEventListener("click", (e) => {
+        if (e.target.id === "vms-prod-zoom-modal" || e.target.id === "vms-zoom-close") {
+          zoomModal.style.display = "none";
+        }
+      });
+    }
+
+    // Restore saved card position if available
+    try {
+      const savedPos = JSON.parse(localStorage.getItem("vms_prod_card_pos"));
+      if (savedPos && savedPos.left && savedPos.top) {
+        let l = parseFloat(savedPos.left);
+        let t = parseFloat(savedPos.top);
+        if (!isNaN(l) && !isNaN(t)) {
+          const maxLeft = Math.max(10, window.innerWidth - 300);
+          const maxTop = Math.max(10, window.innerHeight - 100);
+          l = Math.max(10, Math.min(l, maxLeft));
+          t = Math.max(10, Math.min(t, maxTop));
+          prodOverlay.style.setProperty("right", "auto", "important");
+          prodOverlay.style.setProperty("bottom", "auto", "important");
+          prodOverlay.style.setProperty("left", `${l}px`, "important");
+          prodOverlay.style.setProperty("top", `${t}px`, "important");
+        }
+      }
+    } catch (e) {}
+
+    // Restore minimized state
+    try {
+      if (localStorage.getItem("vms_prod_card_minimized") === "true") {
+        const bodyEl = document.getElementById("vms-prod-body");
+        const miniEl = document.getElementById("vms-prod-mini-bar");
+        if (bodyEl && miniEl) {
+          bodyEl.style.display = "none";
+          miniEl.style.display = "flex";
+        }
+      }
+    } catch (e) {}
+
+    // Dragging setup for #vms-product-overlay
+    const headerEl = document.getElementById("vms-prod-header");
+    let isDragging = false;
+    let shiftX = 0;
+    let shiftY = 0;
+
+    if (headerEl) {
+      headerEl.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button")) return;
+        isDragging = true;
+        const rect = prodOverlay.getBoundingClientRect();
+        shiftX = e.clientX - rect.left;
+        shiftY = e.clientY - rect.top;
+        headerEl.style.cursor = "grabbing";
+        e.preventDefault();
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        let newX = e.clientX - shiftX;
+        let newY = e.clientY - shiftY;
+        const maxLeft = Math.max(10, window.innerWidth - prodOverlay.offsetWidth - 10);
+        const maxTop = Math.max(10, window.innerHeight - prodOverlay.offsetHeight - 10);
+        newX = Math.max(10, Math.min(newX, maxLeft));
+        newY = Math.max(10, Math.min(newY, maxTop));
+        prodOverlay.style.setProperty("right", "auto", "important");
+        prodOverlay.style.setProperty("bottom", "auto", "important");
+        prodOverlay.style.setProperty("left", `${newX}px`, "important");
+        prodOverlay.style.setProperty("top", `${newY}px`, "important");
+      });
+
+      window.addEventListener("mouseup", () => {
+        if (isDragging) {
+          isDragging = false;
+          headerEl.style.cursor = "grab";
+          try {
+            localStorage.setItem("vms_prod_card_pos", JSON.stringify({
+              left: prodOverlay.style.left,
+              top: prodOverlay.style.top
+            }));
+          } catch (e) {}
+        }
+      });
+    }
+
+    // Card minimize / expand buttons
+    const minBtn = document.getElementById("vms-prod-min-btn");
+    const expandBtn = document.getElementById("vms-prod-expand-btn");
+    const closeBtn = document.getElementById("vms-prod-close-btn");
+    const bodyEl = document.getElementById("vms-prod-body");
+    const miniEl = document.getElementById("vms-prod-mini-bar");
+
+    if (minBtn && bodyEl && miniEl) {
+      minBtn.addEventListener("click", () => {
+        bodyEl.style.display = "none";
+        miniEl.style.display = "flex";
+        try { localStorage.setItem("vms_prod_card_minimized", "true"); } catch (e) {}
+      });
+    }
+
+    if (expandBtn && bodyEl && miniEl) {
+      expandBtn.addEventListener("click", () => {
+        bodyEl.style.display = "flex";
+        miniEl.style.display = "none";
+        try { localStorage.setItem("vms_prod_card_minimized", "false"); } catch (e) {}
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => {
+        prodOverlay.style.display = "none";
+      });
+    }
+
+    // SKU Copy Button
+    const copyBtn = document.getElementById("vms-prod-copy-btn");
+    const skuVal = document.getElementById("vms-prod-sku-val");
+    if (copyBtn && skuVal) {
+      const handleCopy = () => {
+        const text = skuVal.textContent.trim();
+        if (text && text !== "-" && text !== "Loading...") {
+          navigator.clipboard.writeText(text).then(() => {
+            copyBtn.textContent = "✅";
+            setTimeout(() => { copyBtn.textContent = "📋"; }, 1500);
+          }).catch(() => {});
+        }
+      };
+      copyBtn.addEventListener("click", handleCopy);
+      skuVal.addEventListener("click", handleCopy);
+    }
+
+    // Zoom Image click
+    const imgEl = document.getElementById("vms-prod-img");
+    const zoomBtn = document.getElementById("vms-prod-zoom-btn");
+    const openZoom = () => {
+      const modal = document.getElementById("vms-prod-zoom-modal");
+      const zImg = document.getElementById("vms-zoom-img");
+      const zCap = document.getElementById("vms-zoom-caption");
+      const skuText = document.getElementById("vms-prod-sku-val") ? document.getElementById("vms-prod-sku-val").textContent : "";
+      const nameText = document.getElementById("vms-prod-name") ? document.getElementById("vms-prod-name").textContent : "";
+      if (modal && zImg && imgEl && imgEl.src) {
+        zImg.src = imgEl.src;
+        if (zCap) zCap.textContent = `${skuText} - ${nameText}`;
+        modal.style.display = "flex";
+      }
+    };
+    if (imgEl) {
+      imgEl.addEventListener("click", openZoom);
+      imgEl.onerror = () => {
+        imgEl.style.display = "none";
+        const noImg = document.getElementById("vms-prod-no-img");
+        if (noImg) noImg.style.display = "flex";
+      };
+    }
+    if (zoomBtn) zoomBtn.addEventListener("click", openZoom);
+
+    // Deep Search retry button handler
+    const retryBtn = document.getElementById("vms-prod-retry-btn");
+    if (retryBtn) {
+      retryBtn.addEventListener("click", () => {
+        const awbEl = document.getElementById("vms-prod-awb");
+        const currentAwb = awbEl ? awbEl.textContent.replace("AWB:", "").trim() : "";
+        if (!currentAwb || currentAwb === "-") return;
+        retryBtn.textContent = "⏳ Searching...";
+        retryBtn.disabled = true;
+        chrome.runtime.sendMessage({ action: "GET_PICKUP_ORDER_DETAILS", awb: currentAwb }, (details) => {
+          retryBtn.textContent = "🔍 Deep Search OMS";
+          retryBtn.disabled = false;
+          if (details && (details.image_url || details.master_sku)) {
+            updateProductCard(currentAwb, details);
+          } else {
+            const noImgText = document.getElementById("vms-prod-no-img-text");
+            if (noImgText) noImgText.textContent = "Product Not Found in OMS";
+          }
+        });
+      });
+    }
+  }
+
+  function showProductCardLoading(awb) {
+    try {
+      chrome.storage.local.get(["vmsImagePreviewEnabled"], (st) => {
+        if (st && st.vmsImagePreviewEnabled === false) return;
+
+        createProductPreviewOverlay();
+        const overlay = document.getElementById("vms-product-overlay");
+        if (!overlay) return;
+
+        overlay.style.display = "block";
+        overlay.classList.remove("cancelled");
+
+        const shimmer = document.getElementById("vms-prod-shimmer");
+        const imgEl = document.getElementById("vms-prod-img");
+        const noImg = document.getElementById("vms-prod-no-img");
+        const zoomBtn = document.getElementById("vms-prod-zoom-btn");
+        const statusBanner = document.getElementById("vms-prod-status-banner");
+        const statusText = document.getElementById("vms-prod-status-text");
+        const qtyBanner = document.getElementById("vms-prod-qty-banner");
+        const qtyText = document.getElementById("vms-prod-qty-text");
+        const skuVal = document.getElementById("vms-prod-sku-val");
+        const prodName = document.getElementById("vms-prod-name");
+        const awbEl = document.getElementById("vms-prod-awb");
+        const subEl = document.getElementById("vms-prod-suborder");
+        const miniSku = document.getElementById("vms-prod-mini-sku");
+        const miniQty = document.getElementById("vms-prod-mini-qty");
+
+        if (shimmer) shimmer.style.display = "flex";
+        if (imgEl) { imgEl.style.display = "none"; imgEl.src = ""; }
+        if (noImg) noImg.style.display = "none";
+        if (zoomBtn) zoomBtn.style.display = "none";
+
+        if (statusBanner && statusText) {
+          statusBanner.className = "vms-prod-status-banner";
+          statusText.textContent = "⏳ SCANNING...";
+        }
+        if (qtyBanner && qtyText) {
+          qtyBanner.className = "vms-prod-qty-banner";
+          qtyText.textContent = "Qty: ...";
+        }
+        if (skuVal) skuVal.textContent = "Loading...";
+        if (prodName) prodName.textContent = "Searching EliteSecom OMS for product...";
+        if (awbEl) awbEl.textContent = `AWB: ${awb}`;
+        if (subEl) subEl.textContent = "";
+        if (miniSku) miniSku.textContent = `AWB: ${awb}`;
+        if (miniQty) miniQty.textContent = "Checking...";
+      });
+    } catch (e) {}
+  }
+
+  function updateProductCard(awb, result) {
+    try {
+      chrome.storage.local.get(["vmsImagePreviewEnabled"], (st) => {
+        if (st && st.vmsImagePreviewEnabled === false) return;
+
+        createProductPreviewOverlay();
+        const overlay = document.getElementById("vms-product-overlay");
+        if (!overlay) return;
+
+        overlay.style.display = "block";
+
+        const shimmer = document.getElementById("vms-prod-shimmer");
+        const imgEl = document.getElementById("vms-prod-img");
+        const noImg = document.getElementById("vms-prod-no-img");
+        const zoomBtn = document.getElementById("vms-prod-zoom-btn");
+        const statusBanner = document.getElementById("vms-prod-status-banner");
+        const statusText = document.getElementById("vms-prod-status-text");
+        const qtyBanner = document.getElementById("vms-prod-qty-banner");
+        const qtyText = document.getElementById("vms-prod-qty-text");
+        const skuVal = document.getElementById("vms-prod-sku-val");
+        const prodName = document.getElementById("vms-prod-name");
+        const awbEl = document.getElementById("vms-prod-awb");
+        const subEl = document.getElementById("vms-prod-suborder");
+        const omsBadge = document.getElementById("vms-prod-oms-badge");
+        const miniSku = document.getElementById("vms-prod-mini-sku");
+        const miniQty = document.getElementById("vms-prod-mini-qty");
+
+        if (shimmer) shimmer.style.display = "none";
+
+        const type = (result && result.statusType) || (result && result.success ? "SUCCESS" : "ERROR");
+        const omsSource = (result && result.omsSource) || "V2";
+        if (omsBadge) omsBadge.textContent = omsSource;
+
+        // Status Banner Styling
+        if (statusBanner && statusText) {
+          statusBanner.className = "vms-prod-status-banner";
+          if (type === "SUCCESS") {
+            statusBanner.classList.add("success");
+            statusText.textContent = `✅ ${omsSource} DONE - READY TO PACK`;
+            overlay.classList.remove("cancelled");
+          } else if (type === "ALREADY_SCANNED") {
+            statusBanner.classList.add("warning");
+            statusText.textContent = `⚠️ ALREADY SCANNED`;
+            overlay.classList.remove("cancelled");
+          } else if (type === "CANCELLED") {
+            statusBanner.classList.add("cancelled");
+            statusText.textContent = `⛔ CANCELLED ORDER - DO NOT PACK!`;
+            overlay.classList.add("cancelled");
+          } else if (type === "NOT_FOUND") {
+            statusBanner.classList.add("warning");
+            statusText.textContent = `❌ NOT FOUND IN OMS`;
+            overlay.classList.remove("cancelled");
+          } else {
+            statusBanner.classList.add("warning");
+            statusText.textContent = `⚠️ ${result && result.message ? result.message : "SCAN ERROR"}`;
+            overlay.classList.remove("cancelled");
+          }
+        }
+
+        // Image URL Handling (Direct, Cache or Background Deep Lookup)
+        const imgUrl = (result && (result.image_url || result.product_image)) || "";
+        if (imgUrl) {
+          if (imgEl) {
+            imgEl.src = imgUrl;
+            imgEl.style.display = "block";
+          }
+          if (noImg) noImg.style.display = "none";
+          if (zoomBtn) zoomBtn.style.display = "block";
+        } else {
+          // Check local persistent caches first
+          chrome.storage.local.get(["awb_product_cache", "vms_product_cache"], (cacheData) => {
+            const cached = (cacheData.awb_product_cache && cacheData.awb_product_cache[awb]) ||
+                           (cacheData.vms_product_cache && cacheData.vms_product_cache[awb]) || null;
+            if (cached && (cached.image_url || cached.master_sku)) {
+              if (cached.image_url && imgEl) {
+                imgEl.src = cached.image_url;
+                imgEl.style.display = "block";
+                if (noImg) noImg.style.display = "none";
+                if (zoomBtn) zoomBtn.style.display = "block";
+              }
+              if (cached.master_sku && skuVal && (!skuVal.textContent || skuVal.textContent === "-" || skuVal.textContent === "Loading..." || skuVal.textContent === awb)) {
+                skuVal.textContent = cached.master_sku;
+                if (miniSku) miniSku.textContent = `SKU: ${cached.master_sku}`;
+              }
+              if (cached.product_title && prodName && (!prodName.textContent || prodName.textContent.includes("Searching"))) {
+                prodName.textContent = cached.product_title;
+              }
+              if (cached.quantity && cached.quantity > 1 && qtyBanner && qtyText) {
+                qtyBanner.className = "vms-prod-qty-banner multi";
+                qtyText.textContent = `🚨 MULTI-QTY: ${cached.quantity} PCS — PACK ALL!`;
+                if (miniQty) miniQty.textContent = `Qty: ${cached.quantity}`;
+              }
+              return;
+            }
+
+            // If not found in cache, display placeholder and trigger background deep search
+            if (imgEl) {
+              imgEl.style.display = "none";
+              imgEl.src = "";
+            }
+            if (noImg) noImg.style.display = "flex";
+            if (zoomBtn) zoomBtn.style.display = "none";
+
+            chrome.runtime.sendMessage({ action: "GET_PICKUP_ORDER_DETAILS", awb }, (details) => {
+              if (chrome.runtime.lastError) return;
+              if (details && (details.image_url || details.master_sku)) {
+                if (details.image_url && imgEl) {
+                  imgEl.src = details.image_url;
+                  imgEl.style.display = "block";
+                  if (noImg) noImg.style.display = "none";
+                  if (zoomBtn) zoomBtn.style.display = "block";
+                }
+                if (details.master_sku && skuVal && (!skuVal.textContent || skuVal.textContent === "-" || skuVal.textContent === "Loading..." || skuVal.textContent === awb)) {
+                  skuVal.textContent = details.master_sku;
+                  if (miniSku) miniSku.textContent = `SKU: ${details.master_sku}`;
+                }
+                if (details.product_title && prodName && (!prodName.textContent || prodName.textContent.includes("Searching"))) {
+                  prodName.textContent = details.product_title;
+                }
+                if (details.quantity && details.quantity > 1 && qtyBanner && qtyText) {
+                  qtyBanner.className = "vms-prod-qty-banner multi";
+                  qtyText.textContent = `🚨 MULTI-QTY: ${details.quantity} PCS — PACK ALL!`;
+                  if (miniQty) miniQty.textContent = `Qty: ${details.quantity}`;
+                }
+              }
+            });
+          });
+        }
+
+        // SKU
+        const sku = (result && (result.master_sku || result.marketplace_sku)) || awb;
+        if (skuVal) skuVal.textContent = sku;
+        if (miniSku) miniSku.textContent = `SKU: ${sku}`;
+
+        // Title / Name
+        const title = (result && (result.product_title || result.item_title)) || "-";
+        if (prodName) prodName.textContent = title;
+
+        // AWB & Suborder
+        if (awbEl) awbEl.textContent = `AWB: ${awb}`;
+        if (subEl) {
+          subEl.textContent = result && result.suborder_number ? `Sub: ${result.suborder_number}` : "";
+        }
+
+        // Quantity Display
+        const qty = Number((result && result.quantity) || 1);
+        if (qtyBanner && qtyText) {
+          if (qty > 1) {
+            qtyBanner.className = "vms-prod-qty-banner multi";
+            qtyText.textContent = `🚨 MULTI-QTY: ${qty} PCS — PACK ALL ITEMS!`;
+          } else {
+            qtyBanner.className = "vms-prod-qty-banner";
+            qtyText.textContent = `📦 Quantity: 1 Pc`;
+          }
+        }
+        if (miniQty) miniQty.textContent = `Qty: ${qty}`;
+      });
+    } catch (e) {
+      console.warn("[VMS-Sync] updateProductCard error:", e);
+    }
+  }
+
   function updateOverlayStatus(awb, result) {
     syncOverlayVisibility();
     const statusBox = document.getElementById("vms-sync-status-container");
@@ -1229,6 +2094,12 @@
         }
       });
     } catch (e) {}
+
+    try {
+      updateProductCard(awb, result);
+    } catch (e) {
+      console.warn("[VMS-Sync] updateProductCard error:", e);
+    }
   }
 
   // High-visibility Fullscreen Banner for CANCELLED orders
@@ -1275,6 +2146,51 @@
   window.addEventListener("message", function (event) {
     if (!event.data || event.data.source !== "VMS_SYNC_PAGE") return;
 
+    // Live Product Photo & Details intercepted directly from Flipkart VMS API
+    if (event.data.type === "VMS_PRODUCT_DATA") {
+      const { awb, product } = event.data;
+      if (awb && product) {
+        console.log("[VMS-Sync] Live product details captured from VMS response:", awb, product);
+        chrome.storage.local.get(["vms_product_cache"], (d) => {
+          const cache = d.vms_product_cache || {};
+          cache[awb] = product;
+          chrome.storage.local.set({ vms_product_cache: cache });
+        });
+        chrome.runtime.sendMessage({ action: "SAVE_PRODUCT_CACHE", awb, product });
+
+        // If current verification card is showing this AWB, update it immediately!
+        const awbEl = document.getElementById("vms-prod-awb");
+        if (awbEl && awbEl.textContent && awbEl.textContent.includes(awb)) {
+          const imgEl = document.getElementById("vms-prod-img");
+          const noImg = document.getElementById("vms-prod-no-img");
+          const zoomBtn = document.getElementById("vms-prod-zoom-btn");
+          const skuVal = document.getElementById("vms-prod-sku-val");
+          const prodName = document.getElementById("vms-prod-name");
+          const qtyBanner = document.getElementById("vms-prod-qty-banner");
+          const qtyText = document.getElementById("vms-prod-qty-text");
+
+          const img = product.image_url || product.product_image;
+          if (img && imgEl) {
+            imgEl.src = img;
+            imgEl.style.display = "block";
+            if (noImg) noImg.style.display = "none";
+            if (zoomBtn) zoomBtn.style.display = "block";
+          }
+          if (product.master_sku && skuVal) {
+            skuVal.textContent = product.master_sku;
+          }
+          if (product.product_title && prodName) {
+            prodName.textContent = product.product_title;
+          }
+          if (product.quantity && product.quantity > 1 && qtyBanner && qtyText) {
+            qtyBanner.className = "vms-prod-qty-banner multi";
+            qtyText.textContent = `🚨 MULTI-QTY: ${product.quantity} PCS — PACK ALL!`;
+          }
+        }
+      }
+      return;
+    }
+
     if (event.data.type === "AWB_SCANNED") {
       let { awb, triggerType } = event.data;
       if (!awb) return;
@@ -1314,6 +2230,10 @@
       }
 
       try {
+        showProductCardLoading(awb);
+      } catch (e) {}
+
+      try {
         chrome.runtime.sendMessage({ action: "SYNC_AWB_TO_ELITE", awb }, (response) => {
           if (chrome.runtime.lastError) {
             const errMsg = chrome.runtime.lastError.message || "";
@@ -1329,11 +2249,13 @@
               }
             } else {
               updateOverlayStatus(awb, { success: false, statusType: "ERROR", message: errMsg });
+              try { updateProductCard(awb, { success: false, statusType: "ERROR", message: errMsg }); } catch (_) {}
             }
             return;
           }
           if (response) {
             updateOverlayStatus(awb, response);
+            try { updateProductCard(awb, response); } catch (_) {}
           }
         });
       } catch (err) {

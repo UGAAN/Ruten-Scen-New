@@ -2,6 +2,7 @@
  * VMS-Sync: Main World Interceptor
  * Injected into the page context of https://fkvms.synlabs.io/*
  * Hooks fetch and XMLHttpRequest to reliably detect AWB scans without breaking VMS camera/ui.
+ * Also extracts product photos, SKUs, and order details from Flipkart VMS API responses!
  */
 
 (function () {
@@ -35,6 +36,52 @@
     }
   }
 
+  // Deep scanner for product metadata in any Flipkart VMS response
+  function extractProductFromPayload(data) {
+    if (!data || typeof data !== "object") return null;
+    let found = null;
+
+    function deepSearch(obj, depth) {
+      if (!obj || depth > 5 || found) return;
+      if (Array.isArray(obj)) {
+        for (const item of obj) deepSearch(item, depth + 1);
+        return;
+      }
+      if (typeof obj !== "object") return;
+
+      const img = obj.image_url || obj.product_image || obj.image || obj.imageUrl || obj.productImageUrl ||
+                  obj.img_url || obj.img || obj.thumbnail ||
+                  (Array.isArray(obj.images) && obj.images[0]) || "";
+      const sku = obj.master_sku || obj.sku || obj.marketplace_sku || obj.seller_sku || obj.sellerSku || obj.fsn || "";
+      const title = obj.product_title || obj.item_title || obj.title || obj.product_name || obj.name || "";
+      const qty = Number(obj.quantity || obj.suborder_item_quantity || obj.qty || 1);
+      const suborder = obj.suborder_number || obj.suborder_no || obj.subOrderNumber || obj.order_id || "";
+
+      if (img || sku) {
+        found = {
+          image_url: img,
+          product_image: img,
+          master_sku: sku,
+          marketplace_sku: obj.marketplace_sku || sku,
+          product_title: title,
+          quantity: isNaN(qty) || qty < 1 ? 1 : qty,
+          suborder_number: suborder,
+          source: "FLIPKART_VMS"
+        };
+        return;
+      }
+
+      for (const k of Object.keys(obj)) {
+        if (typeof obj[k] === "object") {
+          deepSearch(obj[k], depth + 1);
+        }
+      }
+    }
+
+    deepSearch(data, 0);
+    return found;
+  }
+
   let lastNotifiedAwb = "";
   let lastNotifiedTime = 0;
 
@@ -61,24 +108,53 @@
     }, "*");
   }
 
+  function notifyProductData(awb, product) {
+    if (!product || (!product.image_url && !product.master_sku)) return;
+    window.postMessage({
+      source: "VMS_SYNC_PAGE",
+      type: "VMS_PRODUCT_DATA",
+      awb: awb || "",
+      product: product
+    }, "*");
+  }
+
   // 1. Hook window.fetch
   const originalFetch = window.fetch;
   window.fetch = async function (...args) {
+    let capturedAwb = null;
+    let isTarget = false;
     try {
       const [resource, config] = args;
       const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
 
       if (isFkVmsScanUrl(url)) {
+        isTarget = true;
         const body = config && config.body;
-        const awb = extractAwbFromBody(body);
-        if (awb) {
-          notifyAwbScan(awb, url, "FETCH");
+        capturedAwb = extractAwbFromBody(body);
+        if (capturedAwb) {
+          notifyAwbScan(capturedAwb, url, "FETCH");
         }
       }
     } catch (err) {
       console.warn("[Ugaan VMS-Sync] Fetch inspect warning:", err);
     }
-    return originalFetch.apply(this, args);
+
+    const response = await originalFetch.apply(this, args);
+
+    if (isTarget) {
+      try {
+        const clone = response.clone();
+        clone.json().then(data => {
+          const product = extractProductFromPayload(data);
+          if (product) {
+            console.log("[Ugaan VMS-Sync] Found product in VMS response:", product);
+            notifyProductData(capturedAwb || lastNotifiedAwb, product);
+          }
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    return response;
   };
 
   // 2. Hook XMLHttpRequest
@@ -97,6 +173,17 @@
         const awb = extractAwbFromBody(body);
         if (awb) {
           notifyAwbScan(awb, url, "XHR");
+          const self = this;
+          this.addEventListener("load", function () {
+            try {
+              const data = JSON.parse(self.responseText);
+              const product = extractProductFromPayload(data);
+              if (product) {
+                console.log("[Ugaan VMS-Sync] Found product in XHR response:", product);
+                notifyProductData(awb, product);
+              }
+            } catch (_) {}
+          });
         }
       }
     } catch (err) {
