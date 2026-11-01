@@ -5,7 +5,7 @@
  */
 
 (function () {
-  console.log("%c[VMS-Sync] Content script v2.0.9 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
+  console.log("%c[VMS-Sync] Content script v2.1.0 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
 
   let recentScansCache = new Map();
   let soundEnabled = true;

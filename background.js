@@ -137,6 +137,17 @@ function seedInitialProductCache() {
         marketplace: "Meesho",
         oms_source: "V2"
       };
+      cache["78208875780"] = {
+        image_url: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/130%20MAMTA%20BLACK_S_226856_2026072291905.jpg",
+        product_image: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/130%20MAMTA%20BLACK_S_226856_2026072291905.jpg",
+        master_sku: "130 MAMTA BLACK_S",
+        marketplace_sku: "130MAMTA_11_BLACK_S",
+        product_title: "130 MAMTA BLACK",
+        quantity: 1,
+        suborder_number: "1265790576.1",
+        marketplace: "AJIO Dropship",
+        oms_source: "V1"
+      };
       chrome.storage.local.set({ awb_product_cache: cache });
     });
   } catch (_) {}
@@ -857,6 +868,71 @@ function parseGetOrdersV2Response(data, awb) {
   return null;
 }
 
+// Parser for EliteSecom V1 tabular order structure (/api/orders)
+function parseV1OrdersResponse(json, cleanAwb) {
+  if (!json || !Array.isArray(json.suborders) || !Array.isArray(json.suborders_keys)) return null;
+
+  const subKeys = json.suborders_keys;
+  const pKeys = json.products_keys || [];
+
+  const subNumIdx = subKeys.indexOf("x_suborder_num");
+  const subSkuIdx = subKeys.indexOf("x_master_sku");
+  const subMktSkuIdx = subKeys.indexOf("x_marketplace_sku");
+  const subMktIdx = subKeys.indexOf("x_marketplace");
+  const subQtyIdx = subKeys.indexOf("x_item_quantity");
+  const subAwbIdx = subKeys.indexOf("x_sent_awb_number");
+  const subProdIdIdx = subKeys.indexOf("x_product_id");
+
+  const pIdIdx = pKeys.indexOf("id");
+  const pImgIdx = pKeys.indexOf("x_image_url");
+  const pNameIdx = pKeys.indexOf("x_product_name");
+  const pSkuIdx = pKeys.indexOf("x_master_sku");
+
+  const targetSub = json.suborders.find(s => {
+    const awb = String(s[subAwbIdx] || "").trim();
+    const subNum = String(s[subNumIdx] || "").trim();
+    return awb === cleanAwb || subNum === cleanAwb || subNum.includes(cleanAwb);
+  });
+
+  if (!targetSub) return null;
+
+  const awb = targetSub[subAwbIdx] || cleanAwb;
+  const subNum = targetSub[subNumIdx] || "";
+  const masterSku = targetSub[subSkuIdx] || "";
+  const mktSku = targetSub[subMktSkuIdx] || masterSku;
+  const marketplace = targetSub[subMktIdx] || "AJIO Dropship";
+  const qty = Number(targetSub[subQtyIdx] || 1);
+
+  let img = "";
+  let title = "";
+  const prodIdRef = targetSub[subProdIdIdx];
+  const prodId = Array.isArray(prodIdRef) ? prodIdRef[0] : prodIdRef;
+
+  if (Array.isArray(json.products)) {
+    const matchProd = json.products.find(p => {
+      if (prodId && p[pIdIdx] === prodId) return true;
+      if (masterSku && p[pSkuIdx] === masterSku) return true;
+      return false;
+    });
+    if (matchProd) {
+      img = (pImgIdx !== -1 && matchProd[pImgIdx]) || "";
+      title = (pNameIdx !== -1 && matchProd[pNameIdx]) || "";
+    }
+  }
+
+  return {
+    image_url: img,
+    product_image: img,
+    master_sku: masterSku,
+    marketplace_sku: mktSku || masterSku,
+    product_title: title || masterSku,
+    quantity: qty,
+    suborder_number: subNum,
+    marketplace: marketplace,
+    oms_source: "V1"
+  };
+}
+
 // Deep recursive extractor for ANY JSON structure (arrays, nested objects, data[0].items, etc.)
 function extractProductFromAnyPayload(obj, depth = 0) {
   if (!obj || depth > 6) return null;
@@ -1145,6 +1221,56 @@ async function fetchPickupProductDetails(cleanAwb, priority = "auto_v2_first", a
 
   // Tier 4: Query EliteSecom V1 (oms.elitesecom.ai)
   async function queryV1() {
+    // 1. Primary V1 Forward Dispatch Orders (/api/orders)
+    try {
+      const v1OrdersPayload = {
+        status: "ready_to_dispatch",
+        page: 1,
+        pageSize: 250,
+        location_key: creds.v1_location_key ? [creds.v1_location_key] : ["ix51463644736"]
+      };
+      const v1Res = await fetch("https://oms.elitesecom.ai/api/orders", {
+        method: "POST",
+        headers: {
+          "Accept": "*/*",
+          "Content-Type": "text/plain;charset=UTF-8"
+        },
+        credentials: "include",
+        body: JSON.stringify(v1OrdersPayload)
+      });
+      const v1Text = await v1Res.text();
+      let v1Data = null;
+      try { v1Data = JSON.parse(v1Text); } catch (_) {}
+
+      const isExpired = isV1SessionExpired(v1Res.status, v1Text, v1Data);
+      if (isExpired && autoLogin) {
+        const email = creds.v1_login_email || creds.v1LoginEmail;
+        const pass = creds.v1_login_password || creds.v1LoginPassword;
+        if (email && pass) {
+          const loginRes = await performV1Login(email, pass);
+          if (loginRes.success) {
+            const retryRes = await fetch("https://oms.elitesecom.ai/api/orders", {
+              method: "POST",
+              headers: { "Accept": "*/*", "Content-Type": "text/plain;charset=UTF-8" },
+              credentials: "include",
+              body: JSON.stringify(v1OrdersPayload)
+            });
+            try { v1Data = await retryRes.json(); } catch (_) {}
+          }
+        }
+      }
+
+      if (v1Data) {
+        const parsedV1 = parseV1OrdersResponse(v1Data, cleanAwb);
+        if (parsedV1 && (parsedV1.image_url || parsedV1.master_sku)) {
+          console.log(`[VMS-Sync] Found order in V1 api/orders:`, parsedV1);
+          saveAwbToProductCache(cleanAwb, parsedV1);
+          return parsedV1;
+        }
+      }
+    } catch (e) {}
+
+    // 2. Secondary V1 Returns Search (/api/return_order_data)
     const v1Queries = [
       { awbNumber: cleanAwb, refrenceCode: "", subOrderNumber: "" },
       { awbNumber: "", refrenceCode: cleanAwb, subOrderNumber: cleanAwb }
