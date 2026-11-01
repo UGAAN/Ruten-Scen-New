@@ -5,7 +5,7 @@
  */
 
 (function () {
-  console.log("%c[VMS-Sync] Content script v2.1.1 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
+  console.log("%c[VMS-Sync] Content script v2.1.2 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
 
   let recentScansCache = new Map();
   let soundEnabled = true;
@@ -673,6 +673,38 @@
         .vms-prod-zoom-btn:hover {
           opacity: 1;
           background: #2563eb;
+        }
+        .vms-prod-size-badge {
+          position: absolute !important;
+          top: 6px;
+          left: 6px;
+          background: #dc2626 !important; /* Bold Vibrant Red */
+          color: #ffffff !important;
+          border: 2px solid #ffffff;
+          border-radius: 6px;
+          padding: 3px 8px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          font-weight: 900;
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+          z-index: 10;
+          pointer-events: none;
+          text-transform: uppercase;
+          line-height: 1;
+        }
+        .vms-prod-size-lbl {
+          font-size: 10px;
+          font-weight: 800;
+          color: rgba(255, 255, 255, 0.95);
+          letter-spacing: 0.5px;
+        }
+        .vms-prod-size-val {
+          font-size: 18px;
+          font-weight: 900;
+          color: #ffffff;
+          letter-spacing: 0.5px;
         }
         .vms-prod-shimmer {
           display: flex;
@@ -1596,6 +1628,10 @@
 
       <div class="vms-prod-body" id="vms-prod-body">
         <div class="vms-prod-img-box" id="vms-prod-img-box">
+          <div class="vms-prod-size-badge" id="vms-prod-size-badge" style="display: none;">
+            <span class="vms-prod-size-lbl">SIZE:</span>
+            <span class="vms-prod-size-val" id="vms-prod-size-val">-</span>
+          </div>
           <div class="vms-prod-shimmer" id="vms-prod-shimmer" style="display: none;">
             <div class="vms-prod-spinner"></div>
             <span>Fetching Product Photo...</span>
@@ -1854,6 +1890,36 @@
     }
   }
 
+  // Extract apparel size from product object or SKU string
+  function extractProductSize(item) {
+    if (!item) return "";
+    if (item.size && typeof item.size === "string" && item.size.trim() && item.size !== "false") {
+      return item.size.trim().toUpperCase();
+    }
+    const sku = item.master_sku || item.marketplace_sku || item.sku || "";
+    if (!sku) return "";
+    const s = String(sku).trim().toUpperCase();
+    const endMatch = s.match(/[_\-\s]+(XS|S|M|L|XL|XXL|2XL|3XL|4XL|5XL|6XL|FREE\s*SIZE|FS|[234][0-9])$/i);
+    if (endMatch) return endMatch[1].replace(/\s+/g, "");
+    const embeddedMatch = s.match(/[_\-\s]+(XS|S|M|L|XL|XXL|2XL|3XL|4XL|5XL|6XL|FS|[234][0-9])(?=[_\-\s]|$)/i);
+    if (embeddedMatch) return embeddedMatch[1];
+    return "";
+  }
+
+  // Render prominent red size highlight badge on top-left of image
+  function renderSizeBadge(item) {
+    const sizeBadge = document.getElementById("vms-prod-size-badge");
+    const sizeVal = document.getElementById("vms-prod-size-val");
+    if (!sizeBadge || !sizeVal) return;
+    const size = extractProductSize(item);
+    if (size) {
+      sizeVal.textContent = size;
+      sizeBadge.style.display = "flex";
+    } else {
+      sizeBadge.style.display = "none";
+    }
+  }
+
   function showProductCardLoading(awb) {
     try {
       chrome.storage.local.get(["vmsImagePreviewEnabled"], (st) => {
@@ -1865,6 +1931,9 @@
 
         overlay.style.display = "block";
         overlay.classList.remove("cancelled");
+
+        const sizeBadge = document.getElementById("vms-prod-size-badge");
+        if (sizeBadge) sizeBadge.style.display = "none";
 
         const shimmer = document.getElementById("vms-prod-shimmer");
         const imgEl = document.getElementById("vms-prod-img");
@@ -2002,6 +2071,7 @@
                 qtyText.textContent = `🚨 MULTI-QTY: ${cached.quantity} PCS — PACK ALL!`;
                 if (miniQty) miniQty.textContent = `Qty: ${cached.quantity}`;
               }
+              renderSizeBadge(cached);
               return;
             }
 
@@ -2037,6 +2107,7 @@
                   qtyText.textContent = `🚨 MULTI-QTY: ${details.quantity} PCS — PACK ALL!`;
                   if (miniQty) miniQty.textContent = `Qty: ${details.quantity}`;
                 }
+                renderSizeBadge(details);
               }
             });
           });
@@ -2055,6 +2126,9 @@
         // Title / Name
         const title = (result && (result.product_title || result.item_title)) || "-";
         if (prodName) prodName.textContent = title;
+
+        // Size Badge Highlight
+        renderSizeBadge(result);
 
         // AWB & Suborder
         if (awbEl) awbEl.textContent = `AWB: ${awb}`;
@@ -2259,6 +2333,7 @@
             qtyBanner.className = "vms-prod-qty-banner multi";
             qtyText.textContent = `🚨 MULTI-QTY: ${product.quantity} PCS — PACK ALL!`;
           }
+          renderSizeBadge(product);
         }
       }
       return;

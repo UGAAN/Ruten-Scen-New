@@ -121,6 +121,7 @@ function seedInitialProductCache() {
         master_sku: "130 MAMTA GREEN_M",
         marketplace_sku: "130 MAMTA R0028-GREEN_UG_M",
         product_title: "130 MAMTA GREEN",
+        size: "M",
         quantity: 1,
         suborder_number: "348163985196516864_1_FORWARD",
         marketplace: "Meesho",
@@ -132,6 +133,7 @@ function seedInitialProductCache() {
         master_sku: "130 MAMTA BLACK_M",
         marketplace_sku: "130 MAMTA BLACK_M",
         product_title: "130 MAMTA BLACK",
+        size: "M",
         quantity: 1,
         suborder_number: "347661949577266688_1_FORWARD",
         marketplace: "Meesho",
@@ -143,8 +145,21 @@ function seedInitialProductCache() {
         master_sku: "130 MAMTA BLACK_S",
         marketplace_sku: "130MAMTA_11_BLACK_S",
         product_title: "130 MAMTA BLACK",
+        size: "S",
         quantity: 1,
         suborder_number: "1265790576.1",
+        marketplace: "AJIO Dropship",
+        oms_source: "V1"
+      };
+      cache["374991802265"] = {
+        image_url: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/127%20MAHEK%20CREAM_S_226856_2026072291852.jpg",
+        product_image: "https://ee-uploaded-files.s3.ap-south-1.amazonaws.com/product_images/127%20MAHEK%20CREAM_S_226856_2026072291852.jpg",
+        master_sku: "127 MAHEK CREAM_S",
+        marketplace_sku: "127 MAHEK A0706 CREAM_S",
+        product_title: "127 MAHEK CREAM",
+        size: "S",
+        quantity: 1,
+        suborder_number: "69845560263562",
         marketplace: "AJIO Dropship",
         oms_source: "V1"
       };
@@ -796,6 +811,7 @@ async function saveAwbToProductCache(awb, product) {
       master_sku: product.master_sku || "",
       marketplace_sku: product.marketplace_sku || "",
       product_title: product.product_title || "",
+      size: product.size || extractSizeFromSku(product.master_sku || product.marketplace_sku) || "",
       quantity: product.quantity || 1,
       suborder_number: product.suborder_number || "",
       marketplace: product.marketplace || "Flipkart",
@@ -807,6 +823,17 @@ async function saveAwbToProductCache(awb, product) {
     if (keys.length > 1000) delete cache[keys[0]];
     await chrome.storage.local.set({ awb_product_cache: cache });
   } catch (e) {}
+}
+
+// Helper to extract apparel size from SKU string
+function extractSizeFromSku(sku) {
+  if (!sku) return "";
+  const s = String(sku).trim().toUpperCase();
+  const endMatch = s.match(/[_\-\s]+(XS|S|M|L|XL|XXL|2XL|3XL|4XL|5XL|6XL|FREE\s*SIZE|FS|[234][0-9])$/i);
+  if (endMatch) return endMatch[1].replace(/\s+/g, "");
+  const embeddedMatch = s.match(/[_\-\s]+(XS|S|M|L|XL|XXL|2XL|3XL|4XL|5XL|6XL|FS|[234][0-9])(?=[_\-\s]|$)/i);
+  if (embeddedMatch) return embeddedMatch[1];
+  return "";
 }
 
 // Parser for EliteSecom V2 tabular order structure (/api/orders/get_orders_v2)
@@ -852,6 +879,10 @@ function parseGetOrdersV2Response(data, awb) {
   const mkt = (targetSub && subMktIdx !== -1 && targetSub[subMktIdx]) || "Flipkart";
   const mktSku = (targetSub && subMktSkuIdx !== -1 && targetSub[subMktSkuIdx]) || "";
 
+  const mSizeIdx = masterKeys.indexOf("x_size");
+  const explicitSize = (targetMaster && mSizeIdx !== -1 && targetMaster[mSizeIdx]) || "";
+  const finalSize = explicitSize && explicitSize !== "false" ? explicitSize : extractSizeFromSku(sku || mktSku);
+
   if (img || sku) {
     return {
       image_url: img,
@@ -859,6 +890,7 @@ function parseGetOrdersV2Response(data, awb) {
       master_sku: sku,
       marketplace_sku: mktSku || sku,
       product_title: title || sku,
+      size: finalSize,
       quantity: Number(qty) || 1,
       suborder_number: suborder,
       marketplace: mkt,
@@ -920,12 +952,17 @@ function parseV1OrdersResponse(json, cleanAwb) {
     }
   }
 
+  const pSizeIdx = pKeys.indexOf("x_size");
+  const explicitSize = (matchProd && pSizeIdx !== -1 && matchProd[pSizeIdx]) || "";
+  const finalSize = explicitSize && explicitSize !== "false" ? explicitSize : extractSizeFromSku(masterSku || mktSku);
+
   return {
     image_url: img,
     product_image: img,
     master_sku: masterSku,
     marketplace_sku: mktSku || masterSku,
     product_title: title || masterSku,
+    size: finalSize,
     quantity: qty,
     suborder_number: subNum,
     marketplace: marketplace,
@@ -966,6 +1003,7 @@ function extractProductFromAnyPayload(obj, depth = 0) {
       master_sku: hasSku ? sku.trim() : "",
       marketplace_sku: obj.marketplace_sku || (hasSku ? sku.trim() : ""),
       product_title: title ? title.trim() : "",
+      size: obj.size || extractSizeFromSku(hasSku ? sku.trim() : ""),
       quantity: isNaN(qty) || qty < 1 ? 1 : qty,
       suborder_number: suborder,
       marketplace: mkt
@@ -1036,6 +1074,7 @@ async function searchInRecentBatches(cleanAwb) {
             master_sku: line.master_sku || line.product_name || "",
             marketplace_sku: mktSku || line.marketplace_sku || line.master_sku || "",
             product_title: line.product_name || line.master_sku || "",
+            size: extractSizeFromSku(line.master_sku || line.marketplace_sku || line.product_name),
             quantity: Number(line.requested_qty || 1),
             suborder_number: line.suborder_num || "",
             marketplace: line.marketplace || "Meesho",

@@ -1,5 +1,5 @@
 @echo off
-title Ugaan Hub - 1-Click System Updater (v2.1.1)
+title Ugaan Hub - 1-Click System Updater (v2.1.2)
 color 0B
 echo ========================================================
 echo          UGAAN HUB - 1-CLICK SYSTEM UPDATER
