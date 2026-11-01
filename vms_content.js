@@ -5,7 +5,7 @@
  */
 
 (function () {
-  console.log("%c[VMS-Sync] Content script v2.1.0 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
+  console.log("%c[VMS-Sync] Content script v2.1.1 active on Flipkart VMS", "color: #00C853; font-weight: bold;");
 
   let recentScansCache = new Map();
   let soundEnabled = true;
@@ -544,8 +544,8 @@
           position: fixed !important;
           top: 72px;
           right: 20px;
-          width: 290px;
-          max-width: 92vw;
+          width: 315px;
+          max-width: 94vw;
           z-index: 2147483646 !important;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           background: #ffffff;
@@ -775,59 +775,57 @@
           align-items: center;
           justify-content: space-between;
           background: #f8fafc;
-          padding: 4px 7px;
-          border-radius: 5px;
+          padding: 5px 8px;
+          border-radius: 6px;
           border: 1px solid #e2e8f0;
+          gap: 6px;
         }
         .vms-prod-sku-label {
           font-size: 10px;
           font-weight: 700;
           color: #64748b;
           white-space: nowrap;
-          margin-right: 6px;
+          flex-shrink: 0;
         }
         .vms-prod-sku-val {
-          font-size: 12px;
+          font-size: 11.5px;
           font-weight: 800;
           color: #0f172a;
           cursor: pointer;
-          max-width: 175px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
           flex: 1;
           text-align: right;
-          margin-right: 4px;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          line-height: 1.3;
         }
         .vms-prod-mpsku-row {
           display: flex;
           align-items: center;
           justify-content: space-between;
           background: #eff6ff;
-          padding: 4px 7px;
-          border-radius: 5px;
+          padding: 5px 8px;
+          border-radius: 6px;
           border: 1px solid #bfdbfe;
-          margin-top: 2px;
+          margin-top: 3px;
+          gap: 6px;
         }
         .vms-prod-mpsku-label {
           font-size: 10px;
           font-weight: 700;
           color: #1d4ed8;
           white-space: nowrap;
-          margin-right: 6px;
+          flex-shrink: 0;
         }
         .vms-prod-mpsku-val {
-          font-size: 12px;
+          font-size: 11.5px;
           font-weight: 800;
           color: #1e3a8a;
           cursor: pointer;
-          max-width: 175px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
           flex: 1;
           text-align: right;
-          margin-right: 4px;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          line-height: 1.3;
         }
         .vms-prod-copy-btn {
           background: transparent;
@@ -985,7 +983,7 @@
         let l = parseFloat(savedPos.left);
         let t = parseFloat(savedPos.top);
         if (!isNaN(l) && !isNaN(t)) {
-          const maxLeft = Math.max(10, window.innerWidth - 300);
+          const maxLeft = Math.max(10, window.innerWidth - 325);
           const maxTop = Math.max(10, window.innerHeight - 50);
           l = Math.max(10, Math.min(l, maxLeft));
           t = Math.max(10, Math.min(t, maxTop));
@@ -1676,7 +1674,7 @@
         let l = parseFloat(savedPos.left);
         let t = parseFloat(savedPos.top);
         if (!isNaN(l) && !isNaN(t)) {
-          const maxLeft = Math.max(10, window.innerWidth - 300);
+          const maxLeft = Math.max(10, window.innerWidth - 325);
           const maxTop = Math.max(10, window.innerHeight - 100);
           l = Math.max(10, Math.min(l, maxLeft));
           t = Math.max(10, Math.min(t, maxTop));
