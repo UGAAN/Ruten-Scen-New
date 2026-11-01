@@ -873,6 +873,55 @@ function extractProductFromAnyPayload(obj, depth = 0) {
   return null;
 }
 
+// Search in recent Pick Batches (covers dispatched, shipped, and multi-day orders)
+async function searchInRecentBatches(cleanAwb) {
+  if (!cleanAwb) return null;
+  try {
+    const listRes = await fetch("https://my.elitesecom.ai/api/orders/list_pick_batches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ page: 1, page_size: 20 })
+    });
+    const listData = await listRes.json();
+    if (!listData || !Array.isArray(listData.data)) return null;
+
+    // Check recent 15 batches in parallel
+    const targetBatches = listData.data.slice(0, 15);
+    const batchFetches = targetBatches.map(b => {
+      return fetch("https://my.elitesecom.ai/api/orders/get_pick_batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ batch_id: b.batch_id })
+      }).then(r => r.json()).catch(() => null);
+    });
+
+    const allBatches = await Promise.all(batchFetches);
+    for (const b of allBatches) {
+      if (b && Array.isArray(b.lines)) {
+        const line = b.lines.find(l => l.awb === cleanAwb || String(l.suborder_num || "").includes(cleanAwb));
+        if (line) {
+          const item = {
+            image_url: line.image_url || "",
+            product_image: line.image_url || "",
+            master_sku: line.master_sku || line.product_name || "",
+            marketplace_sku: line.marketplace_sku || line.master_sku || "",
+            product_title: line.product_name || line.master_sku || "",
+            quantity: Number(line.requested_qty || 1),
+            suborder_number: line.suborder_num || "",
+            marketplace: line.marketplace || "Meesho",
+            oms_source: "V2"
+          };
+          saveAwbToProductCache(cleanAwb, item);
+          return item;
+        }
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 // Multi-Tier Helper to fetch Order Details & Product Image for Pickup verification
 async function fetchPickupProductDetails(cleanAwb, priority = "auto_v2_first", autoLogin = true, creds = {}) {
   if (!cleanAwb) return null;
@@ -982,6 +1031,15 @@ async function fetchPickupProductDetails(cleanAwb, priority = "auto_v2_first", a
         console.warn("[VMS-Sync] get_orders_v2 error:", err);
       }
     }
+
+    // 🚀 Secondary V2 Pick Batch Search (Finds shipped, past, and multi-channel parcels like Valmo/Meesho)
+    try {
+      const batchResult = await searchInRecentBatches(cleanAwb);
+      if (batchResult && (batchResult.image_url || batchResult.master_sku)) {
+        console.log(`[VMS-Sync] Found order in V2 Pick Batch:`, batchResult);
+        return batchResult;
+      }
+    } catch (_) {}
 
     // Secondary fallback endpoints on V2
     const v2Endpoints = [
@@ -1576,11 +1634,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else {
       sendResponse({ success: false });
     }
-    return true;
+    return false;
   }
 
   if (request.action === "GET_PICKUP_ORDER_DETAILS") {
     (async () => {
+      let responded = false;
+      const guardTimer = setTimeout(() => {
+        if (!responded) {
+          responded = true;
+          try { sendResponse({ success: false, timeout: true }); } catch (_) {}
+        }
+      }, 4500);
+
       try {
         const settings = await chrome.storage.local.get([
           "omsPriority", "oms_priority", "autoLoginEnabled", "auto_login_enabled",
@@ -1590,9 +1656,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const priority = settings.omsPriority || (settings.oms_priority === "v1" ? "auto_v1_first" : "auto_v2_first");
         const autoLogin = settings.autoLoginEnabled !== false && settings.auto_login_enabled !== false;
         const details = await fetchPickupProductDetails(request.awb, priority, autoLogin, settings);
-        sendResponse(details || { success: false });
+        if (!responded) {
+          responded = true;
+          clearTimeout(guardTimer);
+          sendResponse(details || { success: false });
+        }
       } catch (e) {
-        sendResponse({ success: false, error: e.message });
+        if (!responded) {
+          responded = true;
+          clearTimeout(guardTimer);
+          sendResponse({ success: false, error: e.message });
+        }
       }
     })();
     return true;

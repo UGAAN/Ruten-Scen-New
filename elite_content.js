@@ -138,10 +138,10 @@
       const domResult = scrapeProductFromDom(awb);
       if (domResult) {
         sendResponse({ success: true, product: domResult });
-        return true;
+      } else {
+        sendResponse({ success: false });
       }
-      sendResponse({ success: false });
-      return true;
+      return false;
     }
   });
 })();
