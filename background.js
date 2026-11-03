@@ -1687,6 +1687,34 @@ const activeInFlightScans = new Map(); // cleanAwb -> Promise
 const recentCompletedScans = new Map(); // cleanAwb -> { result, timestamp }
 
 // Timeout Wrapper for Pickup Scan with Deduplication Lock
+
+// Check if an AWB belongs to an AJIO order in Ugaan Cloud
+async function checkUgaanAjioOrder(awb) {
+  if (!awb) return null;
+  const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
+  if (cleanAwb.length < 5) return null;
+
+  const endpoints = [
+    `http://192.168.1.117:3002/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`,
+    `http://192.168.1.117:8090/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`,
+    `http://127.0.0.1:8090/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`,
+    `http://localhost:3002/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep, { signal: AbortSignal.timeout(1800) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.found) {
+          return data;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
 async function handleEliteScanWithTimeout(awb) {
   const cleanAwb = String(awb || "").replace(/^[(\s]+|[)\s]+$/g, "").trim();
   if (!cleanAwb) {
@@ -1831,16 +1859,131 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // --- VMS Pickup Sync Actions ---
+  // --- Ugaan Cloud Video Cloner Action ---
+  if (request.action === "CLONE_VIDEO_TO_UGAAN_CLOUD") {
+    (async () => {
+      try {
+        const { awb, videoDataUrl } = request;
+        if (!awb || !videoDataUrl) {
+          sendResponse({ success: false, error: "Missing AWB or video data" });
+          return;
+        }
+
+        // Convert data URL back to Blob
+        const parts = videoDataUrl.split(",");
+        const mime = (parts[0].match(/:(.*?);/) || [])[1] || "video/webm";
+        const b64 = parts[1];
+        const binaryStr = atob(b64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const videoBlob = new Blob([bytes], { type: mime });
+
+        const settings = await chrome.storage.local.get(["ugaan_server_url"]);
+        const customUrl = settings.ugaan_server_url ? settings.ugaan_server_url.trim() : null;
+
+        const endpoints = [
+          customUrl,
+          "http://192.168.1.117:3002/api/ajio/external-video-sync",
+          "http://192.168.1.117:8090/api/ajio/external-video-sync",
+          "http://127.0.0.1:8090/api/ajio/external-video-sync",
+          "http://localhost:3002/api/ajio/external-video-sync",
+          "https://cloud.ugaan.in/api/ajio/external-video-sync"
+        ].filter(Boolean);
+
+        let successResult = null;
+        let lastErr = null;
+
+        for (const ep of endpoints) {
+          try {
+            const formData = new FormData();
+            formData.append("awb", awb);
+            formData.append("video", videoBlob, `${awb}.webm`);
+            formData.append("packer", "Flipkart VMS Station");
+
+            const resp = await fetch(ep, {
+              method: "POST",
+              body: formData
+            });
+
+            if (resp.ok) {
+              successResult = await resp.json();
+              console.log(`[VMS-Sync] Uploaded cloned video to ${ep}:`, successResult);
+              break;
+            } else {
+              lastErr = `HTTP ${resp.status}`;
+            }
+          } catch (netErr) {
+            lastErr = netErr.message;
+          }
+        }
+
+        if (successResult) {
+          sendResponse({ success: true, ...successResult });
+        } else {
+          sendResponse({ success: false, error: lastErr });
+        }
+      } catch (err) {
+        console.error("[VMS-Sync] Clone upload error:", err);
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true; // Keep message channel open for async response
+  }
+
+  // --- VMS Pickup Sync Actions (with Ugaan Cloud AJIO Priority) ---
   if (request.action === "SYNC_AWB_TO_ELITE") {
-    handleEliteScanWithTimeout(request.awb)
-      .then(res => sendResponse(res))
-      .catch(err => sendResponse({
-        success: false,
-        statusType: "ERROR",
-        awb: request.awb,
-        message: err.message || "Request Error"
-      }));
+    (async () => {
+      const cleanAwb = String(request.awb || "").replace(/^[(\s]+|[)\s]+$/g, "").trim();
+
+      // 1. Check if this AWB is an AJIO Order in Ugaan Cloud!
+      try {
+        const ajioOrder = await checkUgaanAjioOrder(cleanAwb);
+        if (ajioOrder && ajioOrder.found) {
+          console.log(`%c[VMS-Sync] AWB ${cleanAwb} identified as AJIO Order in Ugaan Cloud!`, "color: #00E676; font-weight: bold;");
+          let imgUrl = ajioOrder.image_url || "";
+          if (imgUrl && !imgUrl.startsWith("http")) {
+            imgUrl = `http://192.168.1.117:3002${imgUrl}`;
+          }
+          sendResponse({
+            awb: cleanAwb,
+            success: true,
+            statusType: "AJIO_ORDER",
+            status: 200,
+            isAjio: true,
+            message: `AJIO Order (${ajioOrder.sku || ajioOrder.base_sku || "Ready"})`,
+            product: {
+              image_url: imgUrl,
+              product_image: imgUrl,
+              master_sku: ajioOrder.sku || ajioOrder.base_sku || cleanAwb,
+              marketplace_sku: ajioOrder.sku || "-",
+              product_title: ajioOrder.article_name || ajioOrder.sku || "AJIO Order",
+              quantity: ajioOrder.total_quantity || 1,
+              source: "UGAAN_CLOUD_AJIO",
+              size: ajioOrder.size || "FS"
+            }
+          });
+          return;
+        }
+      } catch (ajioErr) {
+        console.warn("[VMS-Sync] Ugaan Cloud lookup error:", ajioErr);
+      }
+
+      // 2. If not an AJIO order, perform standard Elite OMS pickup scan (Flipkart/Meesho)
+      try {
+        const res = await handleEliteScanWithTimeout(cleanAwb);
+        sendResponse(res);
+      } catch (err) {
+        sendResponse({
+          success: false,
+          statusType: "ERROR",
+          awb: cleanAwb,
+          message: err.message || "Request Error"
+        });
+      }
+    })();
     return true;
   }
 

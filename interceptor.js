@@ -118,6 +118,122 @@
     }, "*");
   }
 
+
+  // =========================================================================
+  // UGAAN CLOUD VMS VIDEO CLONER & SYNC
+  // Clones packing video chunks uploaded to Flipkart VMS and relays to Ugaan Cloud
+  // =========================================================================
+  const capturedAwbChunks = {};
+  const awbFinalizeTimers = {};
+
+
+  function getActiveAwbFromDom() {
+    try {
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+      for (const inp of inputs) {
+        const val = (inp.value || "").trim();
+        if (val.length >= 8 && val.length <= 40 && !val.includes("feed") && !val.includes("http")) {
+          return val;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function extractAwbFromUrl(url) {
+    if (!url) return null;
+    try {
+      const trMatch = url.match(/[?&]trackingId=([^&#]+)/i);
+      if (trMatch) return decodeURIComponent(trMatch[1]).trim();
+
+      const awbParam = url.match(/[?&]awb=([^&#]+)/i);
+      if (awbParam) return decodeURIComponent(awbParam[1]).trim();
+
+      const fileMatch = url.match(/\/([A-Za-z0-9_\-]{8,35})(?:-[0-9a-fA-F]{8,})?/i);
+      if (fileMatch) {
+        const candidate = fileMatch[1].split("-")[0].trim();
+        if (candidate.length >= 8 && candidate.length <= 35) {
+          return candidate;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function bufferVideoChunk(awb, rawBody, originUrl) {
+    if (!awb) return;
+    const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
+    if (!cleanAwb || cleanAwb.length < 5) return;
+
+    let chunkBlob = null;
+    try {
+      if (rawBody instanceof Blob) {
+        chunkBlob = rawBody.slice(0, rawBody.size, rawBody.type || "video/webm");
+      } else if (rawBody instanceof ArrayBuffer) {
+        chunkBlob = new Blob([rawBody], { type: "video/webm" });
+      } else if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(rawBody)) {
+        chunkBlob = new Blob([rawBody.buffer], { type: "video/webm" });
+      } else if (typeof FormData !== "undefined" && rawBody instanceof FormData) {
+        for (const [k, v] of rawBody.entries()) {
+          if (v instanceof Blob && v.size > 10000) {
+            chunkBlob = v.slice(0, v.size, v.type || "video/webm");
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[Ugaan VMS Cloner] Error extracting blob chunk:", e);
+    }
+
+    if (!chunkBlob || chunkBlob.size < 5000) return;
+
+    if (!capturedAwbChunks[cleanAwb]) {
+      capturedAwbChunks[cleanAwb] = [];
+    }
+    capturedAwbChunks[cleanAwb].push(chunkBlob);
+    console.log(`%c[Ugaan VMS Cloner] Buffered video chunk #${capturedAwbChunks[cleanAwb].length} (${chunkBlob.size} bytes) for AWB: ${cleanAwb}`, "color: #10b981; font-weight: bold;");
+
+    // Debounce timer to auto-dispatch video (2.5s after last chunk)
+    if (awbFinalizeTimers[cleanAwb]) {
+      clearTimeout(awbFinalizeTimers[cleanAwb]);
+    }
+    awbFinalizeTimers[cleanAwb] = setTimeout(() => {
+      dispatchClonedVideo(cleanAwb);
+    }, 2500);
+  }
+
+  function dispatchClonedVideo(awb) {
+    if (!awb) return;
+    const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
+    if (awbFinalizeTimers[cleanAwb]) {
+      clearTimeout(awbFinalizeTimers[cleanAwb]);
+      delete awbFinalizeTimers[cleanAwb];
+    }
+    const chunks = capturedAwbChunks[cleanAwb];
+    if (!chunks || chunks.length === 0) return;
+    delete capturedAwbChunks[cleanAwb];
+
+    try {
+      const finalBlob = new Blob(chunks, { type: "video/webm" });
+      console.log(`%c[Ugaan VMS Cloner] Video complete for AWB ${cleanAwb}: ${finalBlob.size} bytes across ${chunks.length} chunks. Sending to Ugaan Cloud...`, "background: #10b981; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;");
+
+      const reader = new FileReader();
+      reader.onloadend = function () {
+        const base64Data = reader.result;
+        window.postMessage({
+          source: "VMS_SYNC_PAGE",
+          type: "CLONE_VIDEO_TO_UGAAN",
+          awb: cleanAwb,
+          videoDataUrl: base64Data,
+          size: finalBlob.size
+        }, "*");
+      };
+      reader.readAsDataURL(finalBlob);
+    } catch (err) {
+      console.warn("[Ugaan VMS Cloner] Error creating video blob payload:", err);
+    }
+  }
+
   // 1. Hook window.fetch
   const originalFetch = window.fetch;
   window.fetch = async function (...args) {
@@ -138,6 +254,36 @@
     } catch (err) {
       console.warn("[Ugaan VMS-Sync] Fetch inspect warning:", err);
     }
+
+    // Inspect fetch payload for video chunks
+    try {
+      const [, config] = args;
+      if (config && config.body) {
+        const b = config.body;
+        const isBin = (
+          (b instanceof Blob && b.size > 10000) ||
+          (b instanceof ArrayBuffer && b.byteLength > 10000) ||
+          (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(b) && b.byteLength > 10000) ||
+          (typeof FormData !== "undefined" && b instanceof FormData)
+        );
+        if (isBin) {
+          const [res] = args;
+          const u = typeof res === "string" ? res : (res && res.url) || "";
+          const targetAwb = extractAwbFromUrl(u) || getActiveAwbFromDom() || lastNotifiedAwb;
+          if (targetAwb) {
+            bufferVideoChunk(targetAwb, b, u);
+          }
+        }
+        const [res] = args;
+        const u = typeof res === "string" ? res : (res && res.url) || "";
+        if (u.includes("update?") || u.includes("/update")) {
+          const finAwb = extractAwbFromUrl(u) || lastNotifiedAwb;
+          if (finAwb) {
+            setTimeout(() => dispatchClonedVideo(finAwb), 400);
+          }
+        }
+      }
+    } catch (_) {}
 
     const response = await originalFetch.apply(this, args);
 
@@ -169,6 +315,32 @@
   XMLHttpRequest.prototype.send = function (body) {
     try {
       const url = this._vms_sync_url || "";
+
+      // 1. Intercept video chunk uploads (Blob / ArrayBuffer > 10KB)
+      const isBinaryChunk = body && (
+        (body instanceof Blob && body.size > 10000) ||
+        (body instanceof ArrayBuffer && body.byteLength > 10000) ||
+        (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(body) && body.byteLength > 10000) ||
+        (typeof FormData !== "undefined" && body instanceof FormData)
+      );
+
+      if (isBinaryChunk) {
+        const awbFromUrl = extractAwbFromUrl(url);
+        const targetAwb = awbFromUrl || getActiveAwbFromDom() || lastNotifiedAwb;
+        if (targetAwb) {
+          bufferVideoChunk(targetAwb, body, url);
+        }
+      }
+
+      // 2. Intercept video finalization (update?trackingId=...)
+      if (url.includes("update?") || url.includes("/update")) {
+        const finAwb = extractAwbFromUrl(url) || lastNotifiedAwb;
+        if (finAwb) {
+          setTimeout(() => dispatchClonedVideo(finAwb), 400);
+        }
+      }
+
+      // 3. Existing Flipkart AWB scan detection
       if (isFkVmsScanUrl(url)) {
         const awb = extractAwbFromBody(body);
         if (awb) {
@@ -217,6 +389,25 @@
         }
       }
     }
+  }, true);
+
+
+  // Watch for Flipkart VMS "Stop" button click to immediately prepare cloned video
+  document.addEventListener("click", function (e) {
+    try {
+      const btn = e.target && (e.target.closest("button") || e.target);
+      if (!btn) return;
+      const txt = (btn.innerText || btn.textContent || "").trim().toUpperCase();
+      if (txt === "STOP" || txt.includes("STOP")) {
+        const activeAwb = getActiveAwbFromDom() || lastNotifiedAwb;
+        if (activeAwb) {
+          console.log(`[Ugaan VMS Cloner] Stop button clicked for AWB: ${activeAwb}`);
+          setTimeout(() => {
+            dispatchClonedVideo(activeAwb);
+          }, 600);
+        }
+      }
+    } catch (_) {}
   }, true);
 
 })();

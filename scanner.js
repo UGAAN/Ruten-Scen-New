@@ -1667,6 +1667,109 @@
   }
 
   // Fetch Order Data with Intelligent Fallback (Priority-aware: V1 First / V2 First)
+  
+  // --- UGAAN CLOUD AJIO RETURN INTEGRATION ---
+  async function checkUgaanCloudReturn(awb, condition = 'Good') {
+    const endpoints = [
+      'http://localhost:8090/api/ajio/return-scan',
+      'http://127.0.0.1:8090/api/ajio/return-scan',
+      'https://cloud.ugaan.in/api/ajio/return-scan'
+    ];
+    const payload = {
+      barcode: awb,
+      condition: condition,
+      return_qty: 1,
+      scanned_by: stationPcName || 'Return Scanner'
+    };
+
+    for (const url of endpoints) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && (data.found || data.matched)) {
+            console.log(`[Scanner] Found order in Ugaan Cloud DB via ${url}:`, data);
+            return data;
+          }
+        }
+      } catch (e) {
+        console.log(`[Scanner] Ugaan Cloud Return API attempt failed (${url}):`, e.message);
+      }
+    }
+    return null;
+  }
+
+  function handleUgaanCloudReturnSuccess(ugaanMatch, rawAwb, condition) {
+    playSound('success');
+    setStatus('RETURN RECORDED IN UGAAN CLOUD', 'success');
+
+    const now = new Date();
+    const condVal = condition || el.orderConditionSelect?.value || batchCondition || 'Good';
+    const ajioOrder = {
+      id: ugaanMatch.id || Date.now(),
+      timestamp: now.toLocaleTimeString(),
+      date: getTodayDateString(),
+      pc_name: stationPcName || 'PC-1',
+      oms_source: 'Ugaan Cloud',
+      _oms_source: 'Ugaan Cloud',
+      awb: ugaanMatch.awb_number || ugaanMatch.awb || rawAwb,
+      return_awb_number: ugaanMatch.awb_number || ugaanMatch.awb || rawAwb,
+      customer_order_id: ugaanMatch.customer_order_id || rawAwb,
+      suborder_id: ugaanMatch.customer_order_id || rawAwb,
+      suborder_no: ugaanMatch.customer_order_id || rawAwb,
+      suborder_number: ugaanMatch.customer_order_id || rawAwb,
+      master_sku: ugaanMatch.sku || '-',
+      sku: ugaanMatch.sku || '-',
+      marketplace_sku: ugaanMatch.sku || '-',
+      marketplace: 'AJIO',
+      quantity: Number(ugaanMatch.total_quantity || 1),
+      return_quantity: Number(ugaanMatch.return_qty || ugaanMatch.total_quantity || 1),
+      condition: formatConditionDisplay(condVal),
+      status: 'Submitted',
+      return_status: 'Return Received',
+      source: 'Ugaan AJIO Cloud',
+      image_url: ugaanMatch.image_url || ''
+    };
+
+    currentOrder = ajioOrder;
+    displayOrderDetails(ajioOrder);
+
+    el.detStatus.textContent = 'Return Received';
+    el.detailConditionTag.textContent = `RETURN RECORDED IN UGAAN CLOUD`;
+    el.btnManualSubmit.disabled = true;
+    el.btnManualSubmit.innerHTML = '<span>✓ Saved in Cloud</span>';
+
+    todayScans.unshift(ajioOrder);
+    saveTodayScans();
+    renderHistoryTable();
+    updateStats();
+
+    if (sheetSyncEnabled && sheetSyncUrl) {
+      syncScanToGoogleSheet(ajioOrder);
+    }
+
+    showNotification(
+      "✅ Return Recorded in Ugaan Cloud",
+      `Order: ${ajioOrder.customer_order_id} | SKU: ${ajioOrder.sku} (Qty: ${ajioOrder.return_quantity}) marked Return Received in Ugaan Cloud!`,
+      "success",
+      5000
+    );
+
+    setTimeout(() => {
+      el.awbInput.value = '';
+      setStatus('READY TO SCAN', 'ready');
+      focusInput();
+    }, 500);
+  }
+
   async function fetchReturnOrderData(awb) {
     el.imageLoader.style.display = 'flex';
     el.placeholderBox.style.display = 'none';
@@ -1730,7 +1833,19 @@
     // --- SMART AUTO-FALLBACK FOR SAME DAY CANCEL ---
     if (scanMode === 'auto') {
       console.log(`[Scanner] AWB ${awb} not found in Detail Mode. Attempting Smart Auto-Fallback: Direct Scan (Same Day Cancel)...`);
-      await performDirectReturnScan(awb, el.orderConditionSelect.value || batchCondition, true);
+      const directScanResult = await performDirectReturnScan(awb, el.orderConditionSelect.value || batchCondition, true);
+      if (directScanResult && directScanResult.success) {
+        return;
+      }
+      // If direct scan did not succeed (i.e. not found in OMS V1/V2), do NOT do early return!
+      // Fall through to check Ugaan AJIO Cloud database below.
+    }
+
+    // 3. Smart Fallback: Check Ugaan AJIO Cloud Orders Database
+    setStatus('CHECKING UGAAN AJIO CLOUD...', 'scanning');
+    const ugaanMatch = await checkUgaanCloudReturn(awb, el.orderConditionSelect?.value || batchCondition);
+    if (ugaanMatch && (ugaanMatch.found || ugaanMatch.matched)) {
+      handleUgaanCloudReturnSuccess(ugaanMatch, awb, el.orderConditionSelect?.value || batchCondition);
       return;
     }
 
@@ -1739,7 +1854,7 @@
 
     showNotification(
       "Order Not Found in Any OMS!",
-      `AWB: ${awb} was not found in V1 or V2. Please check the barcode label.`,
+      `AWB: ${awb} was not found in V1, V2, or Ugaan Cloud. Please check the barcode label.`,
       "not_found",
       5000
     );
@@ -2462,12 +2577,26 @@
         setStatus('READY TO SCAN', 'ready');
         focusInput();
       }, 300);
+      return { success: true, oms: omsSource, data: resData };
 
     } else {
+      console.log(`[Direct Scan] AWB ${rawAwb} not in OMS. Checking Ugaan AJIO Cloud fallback...`);
+      setStatus('CHECKING UGAAN AJIO CLOUD...', 'scanning');
+      const ugaanMatch = await checkUgaanCloudReturn(rawAwb, cond);
+      if (ugaanMatch && (ugaanMatch.found || ugaanMatch.matched)) {
+        handleUgaanCloudReturnSuccess(ugaanMatch, rawAwb, cond);
+        return { success: true, source: 'ugaan_cloud', data: ugaanMatch };
+      }
+
+      if (isAutoFallback) {
+        // If called as auto-fallback from fetchReturnOrderData, return failure so fetchReturnOrderData can handle final error display
+        return { success: false, notFoundInOms: true };
+      }
+
       playSound('not_found');
       setStatus('ORDER NOT FOUND IN V1 OR V2', 'error');
 
-      const errMsg = (result && result.message) || 'Not found in OMS';
+      const errMsg = (result && result.message) || 'Not found in OMS or Ugaan Cloud';
       showNotification(
         "Order Not Found in Any OMS!",
         `AWB: ${rawAwb} (${errMsg}). Please check barcode label.`,
@@ -2478,6 +2607,7 @@
       resetDisplay();
       el.awbInput.value = '';
       focusInput();
+      return { success: false };
     }
   }
 

@@ -1960,7 +1960,11 @@
         // Status Banner Styling
         if (statusBanner && statusText) {
           statusBanner.className = "vms-prod-status-banner";
-          if (type === "SUCCESS") {
+          if (type === "AJIO_ORDER" || (result && result.isAjio)) {
+            statusBanner.classList.add("success");
+            statusText.textContent = `📦 AJIO ORDER - READY TO PACK & CLONE`;
+            overlay.classList.remove("cancelled");
+          } else if (type === "SUCCESS") {
             statusBanner.classList.add("success");
             statusText.textContent = `✅ ${omsSource} DONE - READY TO PACK`;
             overlay.classList.remove("cancelled");
@@ -1968,7 +1972,15 @@
             statusBanner.classList.add("warning");
             statusText.textContent = `⚠️ ALREADY SCANNED`;
             overlay.classList.remove("cancelled");
-          } else if (type === "CANCELLED") {
+          } else if (type === "AJIO_ORDER" || (result && result.isAjio)) {
+      statusBox.classList.remove("error", "warning", "cancelled");
+      statusBox.classList.add("success");
+      stateBadge.className = "vms-sync-badge-pill success";
+      stateBadge.textContent = "AJIO ORDER";
+      msgText.textContent = "Ready to Pack & Clone";
+      msgText.style.display = "inline";
+      playSuccessSound();
+    } else if (type === "CANCELLED") {
             statusBanner.classList.add("cancelled");
             statusText.textContent = `⛔ CANCELLED ORDER - DO NOT PACK!`;
             overlay.classList.add("cancelled");
@@ -1984,7 +1996,18 @@
         }
 
         // Image URL Handling (Direct, Cache or Background Deep Lookup)
-        const imgUrl = (result && (result.image_url || result.product_image)) || "";
+        const imgUrl = (result && (result.image_url || result.product_image || (result.product && (result.product.image_url || result.product.product_image)))) || "";
+        if (result && result.product) {
+          const prod = result.product;
+          if (prod.master_sku && skuVal) skuVal.textContent = prod.master_sku;
+          if (prod.marketplace_sku && mpSkuVal) mpSkuVal.textContent = prod.marketplace_sku;
+          if (prod.product_title && prodName) prodName.textContent = prod.product_title;
+          if (prod.quantity && prod.quantity > 1 && qtyBanner && qtyText) {
+            qtyBanner.className = "vms-prod-qty-banner multi";
+            qtyText.textContent = `🚨 MULTI-QTY: ${prod.quantity} PCS — PACK ALL!`;
+          }
+          renderSizeBadge(prod);
+        }
         if (imgUrl) {
           if (imgEl) {
             imgEl.src = imgUrl;
@@ -2281,6 +2304,31 @@
       return;
     }
 
+    // Ugaan Cloud VMS Video Cloner & Auto-Pack
+    if (event.data.type === "CLONE_VIDEO_TO_UGAAN") {
+      const { awb, videoDataUrl, size } = event.data;
+      if (awb && videoDataUrl) {
+        console.log(`[VMS-Sync] Relaying cloned video for ${awb} (${size} bytes) to Ugaan Cloud...`);
+        showUgaanSyncBadge(awb, "SYNCING");
+
+        chrome.runtime.sendMessage({
+          action: "CLONE_VIDEO_TO_UGAAN_CLOUD",
+          awb: awb,
+          videoDataUrl: videoDataUrl,
+          size: size
+        }, (resp) => {
+          if (resp && resp.success) {
+            console.log(`%c[VMS-Sync] Cloned video stored in Ugaan Cloud:`, "color: #00E676; font-weight: bold;", resp);
+            showUgaanSyncBadge(awb, resp.matched ? "MATCHED" : "SAVED", resp);
+          } else {
+            console.warn(`[VMS-Sync] Ugaan Cloud video sync warning:`, resp);
+            showUgaanSyncBadge(awb, "FAILED", resp);
+          }
+        });
+      }
+      return;
+    }
+
     if (event.data.type === "AWB_SCANNED") {
       let { awb, triggerType } = event.data;
       if (!awb) return;
@@ -2372,6 +2420,79 @@
     document.addEventListener("DOMContentLoaded", syncOverlayVisibility);
   } else {
     syncOverlayVisibility();
+  }
+
+
+  // Sleek UI Notification for Ugaan Cloud Video Sync on Flipkart VMS screen
+  function showUgaanSyncBadge(awb, status, details) {
+    let badge = document.getElementById("ugaan-vms-clone-badge");
+    if (!badge) {
+      badge = document.createElement("div");
+      badge.id = "ugaan-vms-clone-badge";
+      badge.style.position = "fixed";
+      badge.style.top = "18px";
+      badge.style.right = "18px";
+      badge.style.zIndex = "99999999";
+      badge.style.padding = "10px 16px";
+      badge.style.borderRadius = "8px";
+      badge.style.fontSize = "13px";
+      badge.style.fontWeight = "bold";
+      badge.style.fontFamily = "system-ui, -apple-system, sans-serif";
+      badge.style.boxShadow = "0 6px 20px rgba(0,0,0,0.35)";
+      badge.style.transition = "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+      badge.style.display = "flex";
+      badge.style.alignItems = "center";
+      badge.style.gap = "8px";
+      badge.style.pointerEvents = "none";
+      document.body.appendChild(badge);
+    }
+
+    badge.style.display = "flex";
+    badge.style.opacity = "1";
+    badge.style.transform = "translateY(0)";
+
+    if (status === "SYNCING") {
+      badge.style.background = "#0f172a";
+      badge.style.color = "#38bdf8";
+      badge.style.border = "1.5px solid #0284c7";
+      badge.innerHTML = `<span>⏳</span><span>Ugaan Cloud: Cloning video (${awb})...</span>`;
+    } else if (status === "MATCHED") {
+      badge.style.background = "#064e3b";
+      badge.style.color = "#34d399";
+      badge.style.border = "1.5px solid #059669";
+      badge.innerHTML = `<span>✅</span><span>Ugaan Cloud: AJIO Order PACKED & Video Saved! (${awb})</span>`;
+      setTimeout(() => {
+        if (badge) {
+          badge.style.opacity = "0";
+          badge.style.transform = "translateY(-10px)";
+          setTimeout(() => { badge.style.display = "none"; }, 400);
+        }
+      }, 5000);
+    } else if (status === "SAVED") {
+      badge.style.background = "#1e1b4b";
+      badge.style.color = "#a5b4fc";
+      badge.style.border = "1.5px solid #6366f1";
+      badge.innerHTML = `<span>☁️</span><span>Ugaan Cloud: Video Saved to Drive (AWB: ${awb})</span>`;
+      setTimeout(() => {
+        if (badge) {
+          badge.style.opacity = "0";
+          badge.style.transform = "translateY(-10px)";
+          setTimeout(() => { badge.style.display = "none"; }, 400);
+        }
+      }, 4000);
+    } else {
+      badge.style.background = "#7f1d1d";
+      badge.style.color = "#fca5a5";
+      badge.style.border = "1.5px solid #dc2626";
+      badge.innerHTML = `<span>⚠️</span><span>Ugaan Cloud: Sync failed (${details?.error || "Offline"})</span>`;
+      setTimeout(() => {
+        if (badge) {
+          badge.style.opacity = "0";
+          badge.style.transform = "translateY(-10px)";
+          setTimeout(() => { badge.style.display = "none"; }, 400);
+        }
+      }, 4000);
+    }
   }
 
 })();
