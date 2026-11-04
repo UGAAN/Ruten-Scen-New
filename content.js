@@ -1257,21 +1257,50 @@
   // --- Ugaan Cloud <-> Flipkart VMS Two-Way Bridge ---
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'UGAAN_PUSH_TO_FKVMS') {
-      const { awb, secondaryAwb, videoDataUrl, size } = e.data;
-      console.log(`[Ugaan-FKVMS Bridge] Relaying video for ${awb} to background service worker...`);
-      chrome.runtime.sendMessage({
-        action: 'PUSH_VIDEO_TO_FLIPKART_VMS',
-        awb,
-        secondaryAwb,
-        videoDataUrl,
-        size
-      }, (res) => {
+      const { awb, orderId, secondaryAwb, videoDataUrl, size } = e.data;
+      console.log(`[Ugaan-FKVMS Bridge] Relaying video for Courier AWB ${awb} (${size} bytes) to background service worker...`);
+      try {
+        chrome.runtime.sendMessage({
+          action: 'PUSH_VIDEO_TO_FLIPKART_VMS',
+          awb,
+          orderId,
+          secondaryAwb,
+          videoDataUrl,
+          size
+        }, (res) => {
+          const lastErr = chrome.runtime.lastError;
+          if (lastErr) {
+            console.error('[Ugaan-FKVMS Bridge] Runtime error communicating with background worker:', lastErr.message);
+            window.postMessage({
+              type: 'UGAAN_FKVMS_PUSH_RESULT',
+              awb,
+              result: {
+                success: false,
+                reason: 'EXTENSION_CONNECTION_ERROR',
+                error: lastErr.message || 'Extension background service worker unreachable'
+              }
+            }, '*');
+            return;
+          }
+          console.log(`[Ugaan-FKVMS Bridge] Video push result for ${awb}:`, res);
+          window.postMessage({
+            type: 'UGAAN_FKVMS_PUSH_RESULT',
+            awb,
+            result: res || { success: false, reason: 'NO_RESPONSE', error: 'No response from background extension' }
+          }, '*');
+        });
+      } catch (err) {
+        console.error('[Ugaan-FKVMS Bridge] Exception sending message to background worker:', err);
         window.postMessage({
           type: 'UGAAN_FKVMS_PUSH_RESULT',
           awb,
-          result: res || { success: false, error: 'No response from background extension' }
+          result: {
+            success: false,
+            reason: 'EXTENSION_CONNECTION_ERROR',
+            error: err.message || 'Failed to dispatch to extension background'
+          }
         }, '*');
-      });
+      }
     }
   });
 

@@ -2496,6 +2496,7 @@
         const prev = res.synlabs_auth || {};
         if (event.data.url.includes("signed")) prev.signedUrl = event.data.url;
         if (event.data.url.includes("update")) prev.updateUrl = event.data.url;
+        if (event.data.url.includes("connection")) prev.connectionUrl = event.data.url;
         prev.lastUpdated = Date.now();
         chrome.storage.local.set({ synlabs_auth: prev });
         chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
