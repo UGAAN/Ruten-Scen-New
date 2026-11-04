@@ -1260,6 +1260,20 @@
     if (e.data && e.data.type === 'UGAAN_PUSH_TO_FKVMS') {
       const { awb, orderId, secondaryAwb, videoDataUrl, size } = e.data;
       console.log(`[Ugaan-FKVMS Bridge] Relaying video for Courier AWB ${awb} (${size} bytes) to background service worker...`);
+
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+        window.postMessage({
+          type: 'UGAAN_FKVMS_PUSH_RESULT',
+          awb,
+          result: {
+            success: false,
+            reason: 'EXTENSION_NOT_AVAILABLE',
+            error: 'Chrome extension runtime not available'
+          }
+        }, '*');
+        return;
+      }
+
       try {
         chrome.runtime.sendMessage({
           action: 'PUSH_VIDEO_TO_FLIPKART_VMS',

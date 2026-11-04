@@ -1924,27 +1924,33 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
     }
 
     let synlabs = {};
-    if (storageLocal) {
+    if (deps.synlabsAuth) {
+      synlabs = Object.assign({}, deps.synlabsAuth);
+    } else if (storageLocal) {
       const authStore = await storageLocal.get(["synlabs_auth"]);
       synlabs = (authStore && authStore.synlabs_auth) || {};
-    } else if (deps.synlabsAuth) {
-      synlabs = deps.synlabsAuth;
     }
 
-    // Cookie fallback: If synlabs.token is missing, attempt to retrieve from session cookies
-    if (!synlabs.token && (deps.cookies || (typeof chrome !== "undefined" && chrome.cookies && chrome.cookies.getAll))) {
+    // Cookie fallback: If synlabs.token or synlabs.feedId is missing, attempt to retrieve from session cookies
+    if ((!synlabs.token || !synlabs.feedId) && (deps.cookies || (typeof chrome !== "undefined" && chrome.cookies && chrome.cookies.getAll))) {
       try {
         const cookieFetcher = deps.cookies || chrome.cookies;
         const cookies = await cookieFetcher.getAll({ domain: "synlabs.io" });
         if (Array.isArray(cookies)) {
           for (const c of cookies) {
             const cName = (c.name || "").toLowerCase();
-            if (cName.includes("token") || cName.includes("jwt") || cName.includes("auth") || cName === "session") {
+            if (!synlabs.token && (cName.includes("token") || cName.includes("jwt") || cName.includes("auth") || cName === "session")) {
               const cVal = c.value ? String(c.value).replace(/^Bearer\s+/i, "").trim() : "";
               if (cVal && cVal.length > 20) {
                 synlabs.token = cVal;
                 console.log(`[FKVMS-AutoPush] Retrieved Synlabs token from browser cookie: ${c.name}`);
-                break;
+              }
+            }
+            if (!synlabs.feedId && (cName.includes("feed") || cName.includes("station"))) {
+              const cVal = c.value ? String(c.value).trim() : "";
+              if (cVal && cVal.length > 1) {
+                synlabs.feedId = cVal;
+                console.log(`[FKVMS-AutoPush] Retrieved Synlabs feedId from browser cookie: ${c.name}`);
               }
             }
           }
@@ -2187,6 +2193,7 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
     return {
       success: true,
       awb: awb,
+      orderId: orderId || null,
       fkvms: true,
       feedId: cleanFeedId,
       message: `Video saved into Flipkart VMS under Courier AWB ${awb}`

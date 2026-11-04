@@ -57,9 +57,9 @@
           } else if (typeof body === "object") {
             parsed = body;
           }
-          const feedCandidate = (parsed && (parsed.feedId || parsed.feed_id || parsed.feed)) ||
-            (typeof FormData !== "undefined" && body instanceof FormData && (body.get("feedId") || body.get("feed_id") || body.get("feed"))) ||
-            (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams && (body.get("feedId") || body.get("feed_id") || body.get("feed")));
+          const feedCandidate = (parsed && (parsed.feedId || parsed.feed_id || parsed.feed || parsed.stationId || parsed.station_id || parsed.station)) ||
+            (typeof FormData !== "undefined" && body instanceof FormData && (body.get("feedId") || body.get("feed_id") || body.get("feed") || body.get("stationId") || body.get("station_id") || body.get("station"))) ||
+            (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams && (body.get("feedId") || body.get("feed_id") || body.get("feed") || body.get("stationId") || body.get("station_id") || body.get("station")));
           if (feedCandidate && String(feedCandidate).trim() && String(feedCandidate).trim() !== capturedFeedId) {
             capturedFeedId = String(feedCandidate).trim();
             window.postMessage({
@@ -87,46 +87,53 @@
     } catch (_) {}
   }
 
-  // Initial scan: query parameters and localStorage for Synlabs credentials
+  // Initial scan: query parameters, localStorage, and sessionStorage for Synlabs credentials
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    const feedParam = urlParams.get("feedId") || urlParams.get("feed_id") || urlParams.get("feed");
+    const feedParam = urlParams.get("feedId") || urlParams.get("feed_id") || urlParams.get("feed") || urlParams.get("stationId") || urlParams.get("station_id") || urlParams.get("station");
     if (feedParam && feedParam.length > 2) {
       captureSynlabsCredentials(null, { feedId: feedParam }, window.location.href);
     }
   } catch (_) {}
 
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      const val = localStorage.getItem(k);
-      if (!val) continue;
-      if (k.toLowerCase().includes("token") || k.toLowerCase().includes("auth")) {
-        let cleanTok = val.replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "");
-        if (cleanTok.startsWith("{")) {
-          try {
-            const parsed = JSON.parse(cleanTok);
-            cleanTok = parsed.token || parsed.accessToken || parsed.access_token || parsed.authToken || parsed.jwt || "";
-          } catch (_) {}
+  const storageTargets = [];
+  try { if (typeof localStorage !== "undefined") storageTargets.push(localStorage); } catch (_) {}
+  try { if (typeof sessionStorage !== "undefined") storageTargets.push(sessionStorage); } catch (_) {}
+
+  for (const storage of storageTargets) {
+    try {
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        const val = storage.getItem(k);
+        if (!val) continue;
+        const kLower = k.toLowerCase();
+        if (kLower.includes("token") || kLower.includes("auth") || kLower.includes("user")) {
+          let cleanTok = val.replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "");
+          if (cleanTok.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(cleanTok);
+              cleanTok = parsed.token || parsed.accessToken || parsed.access_token || parsed.authToken || parsed.jwt || (parsed.auth && parsed.auth.token) || (parsed.user && parsed.user.token) || "";
+            } catch (_) {}
+          }
+          if (cleanTok && typeof cleanTok === "string" && cleanTok.length > 20 && !cleanTok.startsWith("{")) {
+            captureSynlabsCredentials({ Authorization: "Bearer " + cleanTok }, null, "storage");
+          }
         }
-        if (cleanTok && typeof cleanTok === "string" && cleanTok.length > 20 && !cleanTok.startsWith("{")) {
-          captureSynlabsCredentials({ Authorization: "Bearer " + cleanTok }, null, "localStorage");
+        if (kLower.includes("feed") || kLower.includes("station")) {
+          let cleanFeed = val.replace(/^["']|["']$/g, "");
+          if (cleanFeed.startsWith("{")) {
+            try {
+              const parsed = JSON.parse(cleanFeed);
+              cleanFeed = parsed.feedId || parsed.feed_id || parsed.feed || parsed.stationId || parsed.station_id || parsed.station || "";
+            } catch (_) {}
+          }
+          if (cleanFeed && typeof cleanFeed === "string" && cleanFeed.length > 2 && !cleanFeed.startsWith("{")) {
+            captureSynlabsCredentials(null, { feedId: cleanFeed }, "storage");
+          }
         }
       }
-      if (k.toLowerCase().includes("feed")) {
-        let cleanFeed = val.replace(/^["']|["']$/g, "");
-        if (cleanFeed.startsWith("{")) {
-          try {
-            const parsed = JSON.parse(cleanFeed);
-            cleanFeed = parsed.feedId || parsed.feed_id || parsed.feed || "";
-          } catch (_) {}
-        }
-        if (cleanFeed && typeof cleanFeed === "string" && cleanFeed.length > 2 && !cleanFeed.startsWith("{")) {
-          captureSynlabsCredentials(null, { feedId: cleanFeed }, "localStorage");
-        }
-      }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   function isFkVmsScanUrl(url) {
     if (!url) return false;
