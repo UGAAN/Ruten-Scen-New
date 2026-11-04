@@ -132,13 +132,31 @@
       const syncEl = document.getElementById("vms-sync-awb-text");
       if (syncEl && syncEl.textContent) {
         const val = syncEl.textContent.trim();
-        if (val.length >= 8 && val.length <= 40) return val;
+        const low = val.toLowerCase();
+        if (
+          val.length >= 8 &&
+          val.length <= 40 &&
+          !low.includes("ready") &&
+          !low.includes("login") &&
+          !low.includes("scan") &&
+          !low.includes("check")
+        ) {
+          return val;
+        }
       }
 
       const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="search"]');
       for (const inp of inputs) {
         const val = (inp.value || "").trim();
-        if (val.length >= 8 && val.length <= 40 && !val.includes("feed") && !val.includes("http")) {
+        const low = val.toLowerCase();
+        if (
+          val.length >= 8 &&
+          val.length <= 40 &&
+          !low.includes("feed") &&
+          !low.includes("http") &&
+          !low.includes("ready") &&
+          !low.includes("login")
+        ) {
           return val;
         }
       }
@@ -230,13 +248,15 @@
     const lastSent = recentlyDispatchedAwbs.get(cleanAwb);
     if (lastSent && (now - lastSent < 3000)) {
       console.log(`[Ugaan VMS Cloner] Suppressed duplicate video dispatch for ${cleanAwb}`);
+      delete capturedAwbChunks[cleanAwb];
       return;
     }
 
     let finalBlob = explicitBlob;
     const chunks = capturedAwbChunks[cleanAwb];
+    delete capturedAwbChunks[cleanAwb];
+
     if (!finalBlob && chunks && chunks.length > 0) {
-      delete capturedAwbChunks[cleanAwb];
       try {
         finalBlob = new Blob(chunks, { type: "video/webm" });
       } catch (err) {
@@ -290,10 +310,13 @@
       recorder.addEventListener("stop", function () {
         const activeAwb = getActiveAwbFromDom() || lastNotifiedAwb;
         console.log(`%c[Ugaan VMS Cloner] MediaRecorder stopped for AWB: ${activeAwb} (${recorderChunks.length} chunks)`, "color: #10b981; font-weight: bold;");
-        if (activeAwb && recorderChunks.length > 0) {
+        if (activeAwb) {
           try {
-            const mimeType = recorder.mimeType || (options && options.mimeType) || "video/webm";
-            const fullBlob = new Blob(recorderChunks, { type: mimeType });
+            let fullBlob = null;
+            if (recorderChunks.length > 0) {
+              const mimeType = recorder.mimeType || (options && options.mimeType) || "video/webm";
+              fullBlob = new Blob(recorderChunks, { type: mimeType });
+            }
             dispatchClonedVideo(activeAwb, fullBlob);
           } catch (e) {
             console.warn("[Ugaan VMS Cloner] Error in MediaRecorder stop handler:", e);
@@ -305,6 +328,7 @@
       return recorder;
     };
     window.MediaRecorder.prototype = OriginalMediaRecorder.prototype;
+    Object.setPrototypeOf(window.MediaRecorder, OriginalMediaRecorder);
     if (OriginalMediaRecorder.isTypeSupported) {
       window.MediaRecorder.isTypeSupported = OriginalMediaRecorder.isTypeSupported.bind(OriginalMediaRecorder);
     }

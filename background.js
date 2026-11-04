@@ -1623,7 +1623,7 @@ async function recordResult(awb, res, settings, orderDetails = null) {
     if (logs.length > 500) logs = logs.slice(0, 500);
   }
 
-  const finalIsSuccess = statusType === "SUCCESS";
+  const finalIsSuccess = statusType === "SUCCESS" || statusType === "AJIO_ORDER";
   const finalIsWarning = statusType === "ALREADY_SCANNED";
   const finalIsCancelled = statusType === "CANCELLED";
 
@@ -1688,6 +1688,18 @@ const recentCompletedScans = new Map(); // cleanAwb -> { result, timestamp }
 
 // Timeout Wrapper for Pickup Scan with Deduplication Lock
 
+let lastSuccessfulUgaanBase = null;
+
+async function checkSingleUgaanBase(base, cleanAwb) {
+  const ep = `${base}/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`;
+  const res = await fetch(ep, { signal: AbortSignal.timeout(1800) });
+  if (res.ok) {
+    const data = await res.json();
+    return { base, data };
+  }
+  throw new Error(`HTTP ${res.status}`);
+}
+
 async function checkUgaanAjioOrder(awb) {
   if (!awb) return null;
   const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
@@ -1701,6 +1713,22 @@ async function checkUgaanAjioOrder(awb) {
     }
   } catch (_) {}
 
+  // 1. If we have a known responsive base, query it first for sub-20ms lookup
+  const preferredBase = customBase || lastSuccessfulUgaanBase;
+  if (preferredBase) {
+    try {
+      const { base, data } = await checkSingleUgaanBase(preferredBase, cleanAwb);
+      lastSuccessfulUgaanBase = base;
+      if (data && data.found) {
+        data._serverBase = base;
+        return data;
+      }
+      return null;
+    } catch (_) {
+      // Preferred base unreachable, fall through to candidate probe
+    }
+  }
+
   const bases = [
     customBase,
     "http://192.168.1.117:3002",
@@ -1712,19 +1740,26 @@ async function checkUgaanAjioOrder(awb) {
     "https://cloud.ugaan.in"
   ].filter(Boolean);
 
-  for (const base of bases) {
-    try {
-      const ep = `${base}/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`;
-      const res = await fetch(ep, { signal: AbortSignal.timeout(1800) });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.found) {
-          data._serverBase = base;
-          return data;
-        }
-      }
-    } catch (_) {}
-  }
+  const uniqueBases = Array.from(new Set(bases));
+
+  try {
+    const result = await Promise.any(
+      uniqueBases.map(base =>
+        checkSingleUgaanBase(base, cleanAwb).then(res => {
+          if (res.data && res.data.found) {
+            return res;
+          }
+          throw new Error("Order not found on this base");
+        })
+      )
+    );
+    if (result && result.data && result.data.found) {
+      lastSuccessfulUgaanBase = result.base;
+      result.data._serverBase = result.base;
+      return result.data;
+    }
+  } catch (_) {}
+
   return null;
 }
 
@@ -1883,22 +1918,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         // Convert data URL back to Blob
-        const parts = videoDataUrl.split(",");
-        const mime = (parts[0].match(/:(.*?);/) || [])[1] || "video/webm";
-        const b64 = parts[1];
-        const binaryStr = atob(b64);
-        const len = binaryStr.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
+        let videoBlob = null;
+        try {
+          const blobResp = await fetch(videoDataUrl);
+          videoBlob = await blobResp.blob();
+        } catch (_) {
+          const parts = videoDataUrl.split(",");
+          const mime = (parts[0].match(/:(.*?);/) || [])[1] || "video/webm";
+          const b64 = (parts[1] || "").replace(/\s/g, "");
+          const binaryStr = atob(b64);
+          const len = binaryStr.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          videoBlob = new Blob([bytes], { type: mime });
         }
-        const videoBlob = new Blob([bytes], { type: mime });
 
         const settings = await chrome.storage.local.get(["ugaan_server_url"]);
-        const customUrl = settings.ugaan_server_url ? settings.ugaan_server_url.trim() : null;
+        let customEndpoint = null;
+        if (settings && settings.ugaan_server_url) {
+          const customBase = settings.ugaan_server_url.trim().replace(/\/api\/ajio\/.*$/, "").replace(/\/+$/, "");
+          if (customBase) customEndpoint = `${customBase}/api/ajio/external-video-sync`;
+        }
 
-        const endpoints = [
-          customUrl,
+        const preferredEndpoint = lastSuccessfulUgaanBase
+          ? `${lastSuccessfulUgaanBase}/api/ajio/external-video-sync`
+          : null;
+
+        const endpoints = Array.from(new Set([
+          customEndpoint,
+          preferredEndpoint,
           "http://192.168.1.117:3002/api/ajio/external-video-sync",
           "http://192.168.1.117:8090/api/ajio/external-video-sync",
           "http://127.0.0.1:8090/api/ajio/external-video-sync",
@@ -1906,7 +1956,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           "http://127.0.0.1:3002/api/ajio/external-video-sync",
           "http://localhost:3002/api/ajio/external-video-sync",
           "https://cloud.ugaan.in/api/ajio/external-video-sync"
-        ].filter(Boolean);
+        ].filter(Boolean)));
 
         let successResult = null;
         let lastErr = null;
@@ -1927,6 +1977,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (resp.ok) {
               successResult = await resp.json();
               console.log(`[VMS-Sync] Uploaded cloned video to ${ep}:`, successResult);
+              try {
+                const epBase = ep.replace(/\/api\/ajio\/.*$/, "");
+                lastSuccessfulUgaanBase = epBase;
+              } catch (_) {}
               break;
             } else {
               lastErr = `HTTP ${resp.status}`;
@@ -1937,6 +1991,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         if (successResult) {
+          try {
+            const st = await chrome.storage.local.get(["todaySuccess"]);
+            await chrome.storage.local.set({ todaySuccess: (st.todaySuccess || 0) + 1 });
+          } catch (_) {}
           sendResponse({ success: true, ...successResult });
         } else {
           sendResponse({ success: false, error: lastErr });

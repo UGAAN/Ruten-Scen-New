@@ -1960,7 +1960,7 @@
         // Status Banner Styling
         if (statusBanner && statusText) {
           statusBanner.className = "vms-prod-status-banner";
-          if (type === "AJIO_ORDER" || (result && result.isAjio)) {
+          if ((type === "AJIO_ORDER" || (result && result.isAjio)) && type !== "CANCELLED" && type !== "AUTH_EXPIRED") {
             statusBanner.classList.add("success");
             statusText.textContent = `📦 AJIO ORDER - READY TO PACK & CLONE`;
             overlay.classList.remove("cancelled");
