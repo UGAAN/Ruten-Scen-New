@@ -1961,17 +1961,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         let successResult = null;
         let lastErr = null;
 
+        let fileExt = "webm";
+        if (videoBlob && videoBlob.type) {
+          if (videoBlob.type.includes("mp4")) fileExt = "mp4";
+          else if (videoBlob.type.includes("quicktime") || videoBlob.type.includes("mov")) fileExt = "mov";
+          else if (videoBlob.type.includes("avi")) fileExt = "avi";
+        }
+
         for (const ep of endpoints) {
           try {
             const formData = new FormData();
             formData.append("awb", awb);
-            formData.append("video", videoBlob, `${awb}.webm`);
+            formData.append("video", videoBlob, `${awb}.${fileExt}`);
             formData.append("packer", "Flipkart VMS Station");
 
             const resp = await fetch(ep, {
               method: "POST",
               body: formData,
-              signal: AbortSignal.timeout(10000)
+              signal: AbortSignal.timeout(6000)
             });
 
             if (resp.ok) {
@@ -2022,6 +2029,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const sBase = ajioOrder._serverBase || "http://192.168.1.117:3002";
             imgUrl = `${sBase}${imgUrl}`;
           }
+
+          const isCancelled = String(ajioOrder.status || "").toLowerCase() === "cancelled";
+          if (isCancelled) {
+            sendResponse({
+              awb: cleanAwb,
+              success: false,
+              statusType: "CANCELLED",
+              status: 400,
+              isAjio: true,
+              message: "AJIO Order CANCELLED - DO NOT PACK!",
+              product: {
+                image_url: imgUrl,
+                product_image: imgUrl,
+                master_sku: ajioOrder.sku || ajioOrder.base_sku || cleanAwb,
+                marketplace_sku: ajioOrder.sku || "-",
+                product_title: ajioOrder.article_name || ajioOrder.sku || "AJIO Order",
+                quantity: ajioOrder.total_quantity || 1,
+                source: "UGAAN_CLOUD_AJIO",
+                size: ajioOrder.size || "FS"
+              }
+            });
+            return;
+          }
+
           sendResponse({
             awb: cleanAwb,
             success: true,

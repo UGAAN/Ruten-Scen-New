@@ -225,13 +225,15 @@
     capturedAwbChunks[cleanAwb].push(chunkBlob);
     console.log(`%c[Ugaan VMS Cloner] Buffered video chunk #${capturedAwbChunks[cleanAwb].length} (${chunkBlob.size} bytes) for AWB: ${cleanAwb}`, "color: #10b981; font-weight: bold;");
 
-    // Debounce timer to auto-dispatch video (2.5s after last chunk)
-    if (awbFinalizeTimers[cleanAwb]) {
-      clearTimeout(awbFinalizeTimers[cleanAwb]);
+    // Debounce timer to auto-dispatch video (only for HTTP chunk uploads, NOT active MediaRecorder!)
+    if (originUrl !== "MediaRecorder") {
+      if (awbFinalizeTimers[cleanAwb]) {
+        clearTimeout(awbFinalizeTimers[cleanAwb]);
+      }
+      awbFinalizeTimers[cleanAwb] = setTimeout(() => {
+        dispatchClonedVideo(cleanAwb);
+      }, 3500);
     }
-    awbFinalizeTimers[cleanAwb] = setTimeout(() => {
-      dispatchClonedVideo(cleanAwb);
-    }, 2500);
   }
 
   function dispatchClonedVideo(awb, explicitBlob) {

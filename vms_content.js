@@ -12,6 +12,7 @@
   let soundVolume = 100;
   let isMinimized = false;
   let hasActiveScanResult = false;
+  let latestScannedAwb = "";
 
   try {
     if (chrome && chrome.storage && chrome.storage.local) {
@@ -2346,7 +2347,11 @@
           return;
         }
       }
+      if (recentScansCache.size > 200) {
+        recentScansCache.clear();
+      }
       recentScansCache.set(awb, now);
+      latestScannedAwb = awb;
 
       console.log(`[VMS-Sync] AWB Detected (${triggerType}): ${awb}`);
 
@@ -2372,6 +2377,10 @@
 
       try {
         chrome.runtime.sendMessage({ action: "SYNC_AWB_TO_ELITE", awb }, (response) => {
+          if (awb !== latestScannedAwb) {
+            console.log(`[VMS-Sync] Ignored response for superseded AWB: ${awb} (current: ${latestScannedAwb})`);
+            return;
+          }
           if (chrome.runtime.lastError) {
             const errMsg = chrome.runtime.lastError.message || "";
             if (errMsg.includes("Extension context invalidated")) {
@@ -2393,6 +2402,10 @@
           if (response) {
             updateOverlayStatus(awb, response);
             try { updateProductCard(awb, response); } catch (_) {}
+          } else {
+            const fallbackErr = { success: false, statusType: "ERROR", message: "No response from extension background" };
+            updateOverlayStatus(awb, fallbackErr);
+            try { updateProductCard(awb, fallbackErr); } catch (_) {}
           }
         });
       } catch (err) {
