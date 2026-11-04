@@ -1972,15 +1972,7 @@
             statusBanner.classList.add("warning");
             statusText.textContent = `⚠️ ALREADY SCANNED`;
             overlay.classList.remove("cancelled");
-          } else if (type === "AJIO_ORDER" || (result && result.isAjio)) {
-      statusBox.classList.remove("error", "warning", "cancelled");
-      statusBox.classList.add("success");
-      stateBadge.className = "vms-sync-badge-pill success";
-      stateBadge.textContent = "AJIO ORDER";
-      msgText.textContent = "Ready to Pack & Clone";
-      msgText.style.display = "inline";
-      playSuccessSound();
-    } else if (type === "CANCELLED") {
+          } else if (type === "CANCELLED") {
             statusBanner.classList.add("cancelled");
             statusText.textContent = `⛔ CANCELLED ORDER - DO NOT PACK!`;
             overlay.classList.add("cancelled");
@@ -2138,7 +2130,14 @@
     const type = (result && result.statusType) || (result && result.success ? "SUCCESS" : "ERROR");
     const omsTag = result && result.omsSource ? `${result.omsSource} ` : "";
 
-    if (type === "SUCCESS") {
+    if (type === "AJIO_ORDER" || (result && result.statusType === "AJIO_ORDER") || (result && result.isAjio && type !== "CANCELLED" && type !== "AUTH_EXPIRED")) {
+      statusBox.classList.add("success");
+      stateBadge.className = "vms-sync-badge-pill success";
+      stateBadge.textContent = "AJIO ORDER";
+      msgText.style.display = "none";
+      msgText.innerHTML = "";
+      playSuccessSound();
+    } else if (type === "SUCCESS") {
       statusBox.classList.add("success");
       stateBadge.className = "vms-sync-badge-pill success";
       stateBadge.textContent = `${omsTag}DONE`;

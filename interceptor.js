@@ -121,18 +121,32 @@
 
   // =========================================================================
   // UGAAN CLOUD VMS VIDEO CLONER & SYNC
-  // Clones packing video chunks uploaded to Flipkart VMS and relays to Ugaan Cloud
+  // Clones packing video recordings / uploads to Flipkart VMS and relays to Ugaan Cloud
   // =========================================================================
   const capturedAwbChunks = {};
   const awbFinalizeTimers = {};
-
+  const recentlyDispatchedAwbs = new Map();
 
   function getActiveAwbFromDom() {
     try {
-      const inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+      const syncEl = document.getElementById("vms-sync-awb-text");
+      if (syncEl && syncEl.textContent) {
+        const val = syncEl.textContent.trim();
+        if (val.length >= 8 && val.length <= 40) return val;
+      }
+
+      const inputs = document.querySelectorAll('input[type="text"], input:not([type]), input[type="search"]');
       for (const inp of inputs) {
         const val = (inp.value || "").trim();
         if (val.length >= 8 && val.length <= 40 && !val.includes("feed") && !val.includes("http")) {
+          return val;
+        }
+      }
+
+      const trackingEls = document.querySelectorAll('[class*="tracking"], [class*="awb"], [id*="tracking"], [id*="awb"]');
+      for (const el of trackingEls) {
+        const val = (el.textContent || "").trim();
+        if (val.length >= 8 && val.length <= 40 && /^[a-zA-Z0-9_-]+$/.test(val)) {
           return val;
         }
       }
@@ -175,7 +189,7 @@
         chunkBlob = new Blob([rawBody.buffer], { type: "video/webm" });
       } else if (typeof FormData !== "undefined" && rawBody instanceof FormData) {
         for (const [k, v] of rawBody.entries()) {
-          if (v instanceof Blob && v.size > 10000) {
+          if (v instanceof Blob && v.size > 1000) {
             chunkBlob = v.slice(0, v.size, v.type || "video/webm");
             break;
           }
@@ -185,7 +199,7 @@
       console.warn("[Ugaan VMS Cloner] Error extracting blob chunk:", e);
     }
 
-    if (!chunkBlob || chunkBlob.size < 5000) return;
+    if (!chunkBlob || chunkBlob.size < 1000) return;
 
     if (!capturedAwbChunks[cleanAwb]) {
       capturedAwbChunks[cleanAwb] = [];
@@ -202,20 +216,42 @@
     }, 2500);
   }
 
-  function dispatchClonedVideo(awb) {
+  function dispatchClonedVideo(awb, explicitBlob) {
     if (!awb) return;
     const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
+    if (!cleanAwb || cleanAwb.length < 5) return;
+
     if (awbFinalizeTimers[cleanAwb]) {
       clearTimeout(awbFinalizeTimers[cleanAwb]);
       delete awbFinalizeTimers[cleanAwb];
     }
+
+    const now = Date.now();
+    const lastSent = recentlyDispatchedAwbs.get(cleanAwb);
+    if (lastSent && (now - lastSent < 3000)) {
+      console.log(`[Ugaan VMS Cloner] Suppressed duplicate video dispatch for ${cleanAwb}`);
+      return;
+    }
+
+    let finalBlob = explicitBlob;
     const chunks = capturedAwbChunks[cleanAwb];
-    if (!chunks || chunks.length === 0) return;
-    delete capturedAwbChunks[cleanAwb];
+    if (!finalBlob && chunks && chunks.length > 0) {
+      delete capturedAwbChunks[cleanAwb];
+      try {
+        finalBlob = new Blob(chunks, { type: "video/webm" });
+      } catch (err) {
+        console.warn("[Ugaan VMS Cloner] Failed to combine video chunks:", err);
+      }
+    }
+
+    if (!finalBlob || finalBlob.size < 1000) {
+      return;
+    }
+
+    recentlyDispatchedAwbs.set(cleanAwb, now);
 
     try {
-      const finalBlob = new Blob(chunks, { type: "video/webm" });
-      console.log(`%c[Ugaan VMS Cloner] Video complete for AWB ${cleanAwb}: ${finalBlob.size} bytes across ${chunks.length} chunks. Sending to Ugaan Cloud...`, "background: #10b981; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;");
+      console.log(`%c[Ugaan VMS Cloner] Video complete for AWB ${cleanAwb}: ${finalBlob.size} bytes. Relaying to Ugaan Cloud...`, "background: #10b981; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold;");
 
       const reader = new FileReader();
       reader.onloadend = function () {
@@ -231,6 +267,46 @@
       reader.readAsDataURL(finalBlob);
     } catch (err) {
       console.warn("[Ugaan VMS Cloner] Error creating video blob payload:", err);
+    }
+  }
+
+  // Hook window.MediaRecorder for capturing packing video recordings directly on Flipkart VMS
+  if (typeof window.MediaRecorder !== "undefined") {
+    const OriginalMediaRecorder = window.MediaRecorder;
+    window.MediaRecorder = function (stream, options) {
+      const recorder = new OriginalMediaRecorder(stream, options);
+      let recorderChunks = [];
+
+      recorder.addEventListener("dataavailable", function (event) {
+        if (event.data && event.data.size > 0) {
+          recorderChunks.push(event.data);
+          const activeAwb = getActiveAwbFromDom() || lastNotifiedAwb;
+          if (activeAwb) {
+            bufferVideoChunk(activeAwb, event.data, "MediaRecorder");
+          }
+        }
+      });
+
+      recorder.addEventListener("stop", function () {
+        const activeAwb = getActiveAwbFromDom() || lastNotifiedAwb;
+        console.log(`%c[Ugaan VMS Cloner] MediaRecorder stopped for AWB: ${activeAwb} (${recorderChunks.length} chunks)`, "color: #10b981; font-weight: bold;");
+        if (activeAwb && recorderChunks.length > 0) {
+          try {
+            const mimeType = recorder.mimeType || (options && options.mimeType) || "video/webm";
+            const fullBlob = new Blob(recorderChunks, { type: mimeType });
+            dispatchClonedVideo(activeAwb, fullBlob);
+          } catch (e) {
+            console.warn("[Ugaan VMS Cloner] Error in MediaRecorder stop handler:", e);
+          }
+        }
+        recorderChunks = [];
+      });
+
+      return recorder;
+    };
+    window.MediaRecorder.prototype = OriginalMediaRecorder.prototype;
+    if (OriginalMediaRecorder.isTypeSupported) {
+      window.MediaRecorder.isTypeSupported = OriginalMediaRecorder.isTypeSupported.bind(OriginalMediaRecorder);
     }
   }
 
@@ -261,9 +337,9 @@
       if (config && config.body) {
         const b = config.body;
         const isBin = (
-          (b instanceof Blob && b.size > 10000) ||
-          (b instanceof ArrayBuffer && b.byteLength > 10000) ||
-          (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(b) && b.byteLength > 10000) ||
+          (b instanceof Blob && b.size > 1000) ||
+          (b instanceof ArrayBuffer && b.byteLength > 1000) ||
+          (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(b) && b.byteLength > 1000) ||
           (typeof FormData !== "undefined" && b instanceof FormData)
         );
         if (isBin) {
@@ -318,9 +394,9 @@
 
       // 1. Intercept video chunk uploads (Blob / ArrayBuffer > 10KB)
       const isBinaryChunk = body && (
-        (body instanceof Blob && body.size > 10000) ||
-        (body instanceof ArrayBuffer && body.byteLength > 10000) ||
-        (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(body) && body.byteLength > 10000) ||
+        (body instanceof Blob && body.size > 1000) ||
+        (body instanceof ArrayBuffer && body.byteLength > 1000) ||
+        (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(body) && body.byteLength > 1000) ||
         (typeof FormData !== "undefined" && body instanceof FormData)
       );
 

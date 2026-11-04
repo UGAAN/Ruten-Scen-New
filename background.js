@@ -1688,25 +1688,38 @@ const recentCompletedScans = new Map(); // cleanAwb -> { result, timestamp }
 
 // Timeout Wrapper for Pickup Scan with Deduplication Lock
 
-// Check if an AWB belongs to an AJIO order in Ugaan Cloud
 async function checkUgaanAjioOrder(awb) {
   if (!awb) return null;
   const cleanAwb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
   if (cleanAwb.length < 5) return null;
 
-  const endpoints = [
-    `http://192.168.1.117:3002/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`,
-    `http://192.168.1.117:8090/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`,
-    `http://127.0.0.1:8090/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`,
-    `http://localhost:3002/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`
-  ];
+  let customBase = null;
+  try {
+    const settings = await chrome.storage.local.get(["ugaan_server_url"]);
+    if (settings && settings.ugaan_server_url) {
+      customBase = settings.ugaan_server_url.trim().replace(/\/api\/ajio\/.*$/, "").replace(/\/+$/, "");
+    }
+  } catch (_) {}
 
-  for (const ep of endpoints) {
+  const bases = [
+    customBase,
+    "http://192.168.1.117:3002",
+    "http://192.168.1.117:8090",
+    "http://127.0.0.1:8090",
+    "http://localhost:8090",
+    "http://127.0.0.1:3002",
+    "http://localhost:3002",
+    "https://cloud.ugaan.in"
+  ].filter(Boolean);
+
+  for (const base of bases) {
     try {
+      const ep = `${base}/api/ajio/lookup/${encodeURIComponent(cleanAwb)}`;
       const res = await fetch(ep, { signal: AbortSignal.timeout(1800) });
       if (res.ok) {
         const data = await res.json();
         if (data && data.found) {
+          data._serverBase = base;
           return data;
         }
       }
@@ -1889,6 +1902,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           "http://192.168.1.117:3002/api/ajio/external-video-sync",
           "http://192.168.1.117:8090/api/ajio/external-video-sync",
           "http://127.0.0.1:8090/api/ajio/external-video-sync",
+          "http://localhost:8090/api/ajio/external-video-sync",
+          "http://127.0.0.1:3002/api/ajio/external-video-sync",
           "http://localhost:3002/api/ajio/external-video-sync",
           "https://cloud.ugaan.in/api/ajio/external-video-sync"
         ].filter(Boolean);
@@ -1905,7 +1920,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             const resp = await fetch(ep, {
               method: "POST",
-              body: formData
+              body: formData,
+              signal: AbortSignal.timeout(10000)
             });
 
             if (resp.ok) {
@@ -1945,7 +1961,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           console.log(`%c[VMS-Sync] AWB ${cleanAwb} identified as AJIO Order in Ugaan Cloud!`, "color: #00E676; font-weight: bold;");
           let imgUrl = ajioOrder.image_url || "";
           if (imgUrl && !imgUrl.startsWith("http")) {
-            imgUrl = `http://192.168.1.117:3002${imgUrl}`;
+            const sBase = ajioOrder._serverBase || "http://192.168.1.117:3002";
+            imgUrl = `${sBase}${imgUrl}`;
           }
           sendResponse({
             awb: cleanAwb,
