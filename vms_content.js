@@ -2131,6 +2131,13 @@
     const type = (result && result.statusType) || (result && result.success ? "SUCCESS" : "ERROR");
     const omsTag = result && result.omsSource ? `${result.omsSource} ` : "";
 
+    if (type !== "CANCELLED") {
+      const banner = document.getElementById("vms-sync-alarm-banner");
+      if (banner && banner.style.display !== "none") {
+        banner.style.display = "none";
+      }
+    }
+
     if (type === "AJIO_ORDER" || (result && result.statusType === "AJIO_ORDER") || (result && result.isAjio && type !== "CANCELLED" && type !== "AUTH_EXPIRED")) {
       statusBox.classList.add("success");
       stateBadge.className = "vms-sync-badge-pill success";
@@ -2442,8 +2449,8 @@
       badge = document.createElement("div");
       badge.id = "ugaan-vms-clone-badge";
       badge.style.position = "fixed";
-      badge.style.top = "18px";
-      badge.style.right = "18px";
+      badge.style.bottom = "24px";
+      badge.style.right = "24px";
       badge.style.zIndex = "99999999";
       badge.style.padding = "10px 16px";
       badge.style.borderRadius = "8px";

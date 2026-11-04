@@ -220,6 +220,11 @@
     if (!chunkBlob || chunkBlob.size < 1000) return;
 
     if (!capturedAwbChunks[cleanAwb]) {
+      if (Object.keys(capturedAwbChunks).length > 100) {
+        for (const k of Object.keys(capturedAwbChunks)) {
+          delete capturedAwbChunks[k];
+        }
+      }
       capturedAwbChunks[cleanAwb] = [];
     }
     capturedAwbChunks[cleanAwb].push(chunkBlob);
@@ -270,6 +275,9 @@
       return;
     }
 
+    if (recentlyDispatchedAwbs.size > 200) {
+      recentlyDispatchedAwbs.clear();
+    }
     recentlyDispatchedAwbs.set(cleanAwb, now);
 
     try {
