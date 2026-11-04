@@ -67,6 +67,43 @@
   window.addEventListener("mousedown", unlockAudioContext, { capture: true, passive: true });
   window.addEventListener("pointerdown", unlockAudioContext, { capture: true, passive: true });
 
+  // --- Meesho Bag Link State & Sound ---
+  let meeshoModeActive = false;
+  try {
+    meeshoModeActive = localStorage.getItem("vms_meesho_link_mode") === "true";
+  } catch (_) {}
+  let meeshoAwaitingBag = false;
+  let activeMeeshoAwb = null;
+  let linkedMeeshoBagId = null;
+
+  async function playMeeshoLinkSound() {
+    if (!soundEnabled || soundVolume <= 0) return;
+    try {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      if (ctx.state === "suspended") {
+        await ctx.resume().catch(() => {});
+      }
+      const vol = Math.max(0, Math.min(1.5, soundVolume / 100));
+      const now = ctx.currentTime;
+      // Cheerful 3-tone rising chime: C5 -> E5 -> G5 (523Hz -> 659Hz -> 784Hz)
+      const notes = [523.25, 659.25, 783.99];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+        gain.gain.setValueAtTime(0.001, now + idx * 0.08);
+        gain.gain.linearRampToValueAtTime(0.35 * vol, now + idx * 0.08 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.08);
+        osc.stop(now + idx * 0.08 + 0.18);
+      });
+    } catch (_) {}
+  }
+
   async function playSuccessSound() {
     if (!soundEnabled || soundVolume <= 0) return;
     try {
@@ -480,6 +517,37 @@
           color: #991b1b;
           border-color: #fecaca;
           animation: vms-chip-blink 1.5s infinite alternate;
+        }
+        .vms-sync-portal-chip.meesho-chip {
+          background: #334155;
+          color: #f1f5f9;
+          border: 1px solid #64748b;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .vms-sync-portal-chip.meesho-chip:hover {
+          background: #475569;
+        }
+        .vms-sync-portal-chip.meesho-chip.active {
+          background: linear-gradient(135deg, #db2777, #9333ea) !important;
+          color: #ffffff !important;
+          border-color: #f472b6 !important;
+          box-shadow: 0 0 10px rgba(219, 39, 119, 0.6);
+        }
+        #vms-meesho-banner {
+          display: none;
+          margin-top: 6px;
+          padding: 6px 10px;
+          background: linear-gradient(135deg, #db2777, #9333ea);
+          border-radius: 6px;
+          color: white;
+          font-size: 11px;
+          font-weight: 700;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          box-shadow: 0 2px 8px rgba(219, 39, 119, 0.4);
         }
         @keyframes vms-chip-blink {
           0% { opacity: 0.8; }
@@ -951,6 +1019,7 @@
             <span>🚀 UPDATE READY</span>
           </button>
           <div class="vms-sync-portal-chips" id="vms-sync-portal-chips-container">
+            <button id="vms-sync-meesho-btn" class="vms-sync-portal-chip meesho-chip" title="Toggle Meesho 2-Scan Bag Link Mode">🛍️ Meesho: OFF</button>
             <button id="vms-sync-v2-chip" class="vms-sync-portal-chip offline" style="display: none;" title="V2 Logged Out! Click to Login">V2: 🔴 Login</button>
             <button id="vms-sync-v1-chip" class="vms-sync-portal-chip offline" style="display: none;" title="V1 Logged Out! Click to Login">V1: 🔴 Login</button>
           </div>
@@ -966,6 +1035,10 @@
             <button class="vms-sync-btn-icon" id="vms-sync-sound-toggle" title="Sound Toggle">🔊</button>
             <button class="vms-sync-btn-icon" id="vms-sync-min-toggle" title="Minimize">−</button>
           </div>
+        </div>
+        <div id="vms-meesho-banner">
+          <span id="vms-meesho-banner-text">⚡ STEP 2: SCAN MEESHO BAG ID NOW</span>
+          <input type="text" id="vms-meesho-bag-input" placeholder="Scan/Type Bag ID..." style="background: white; color: #0f172a; border: 1px solid #f472b6; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold; width: 140px; outline: none;" />
         </div>
         <div id="vms-sync-inline-settings" style="display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0;">
           <div style="font-size: 9px; font-weight: 700; color: #1e40af; margin-bottom: 2px;">1. ELITESECOM API URL (OMS):</div>
@@ -1142,6 +1215,51 @@
         minBtn.title = "Minimize";
       }
     });
+
+    // Meesho Link Mode button & handlers
+    const meeshoBtn = document.getElementById("vms-sync-meesho-btn");
+    const meeshoBanner = document.getElementById("vms-meesho-banner");
+    const meeshoBagInput = document.getElementById("vms-meesho-bag-input");
+
+    function updateMeeshoUI() {
+      if (!meeshoBtn) return;
+      if (meeshoModeActive) {
+        meeshoBtn.classList.add("active");
+        meeshoBtn.textContent = "🛍️ Meesho: ON";
+        meeshoBtn.title = "Meesho 2-Scan Bag Link Mode is ACTIVE. 1st scan = AWB, 2nd scan = Bag ID.";
+        if (meeshoAwaitingBag && meeshoBanner) {
+          meeshoBanner.style.display = "flex";
+        }
+      } else {
+        meeshoBtn.classList.remove("active");
+        meeshoBtn.textContent = "🛍️ Meesho: OFF";
+        meeshoBtn.title = "Click to turn ON Meesho 2-Scan Bag Link Mode.";
+        if (meeshoBanner) meeshoBanner.style.display = "none";
+      }
+    }
+
+    if (meeshoBtn) {
+      updateMeeshoUI();
+      meeshoBtn.addEventListener("click", () => {
+        meeshoModeActive = !meeshoModeActive;
+        try {
+          localStorage.setItem("vms_meesho_link_mode", meeshoModeActive ? "true" : "false");
+        } catch (_) {}
+        updateMeeshoUI();
+      });
+    }
+
+    if (meeshoBagInput) {
+      meeshoBagInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const val = (meeshoBagInput.value || "").trim();
+          if (val && activeMeeshoAwb) {
+            handleMeeshoBagLinked(activeMeeshoAwb, val);
+          }
+        }
+      });
+    }
 
     const soundBtn = document.getElementById("vms-sync-sound-toggle");
     if (soundBtn) {
@@ -2311,16 +2429,93 @@
       return;
     }
 
+    // Helper: Meesho Bag Linked handler
+    function handleMeeshoBagLinked(awb, bagId) {
+      const cleanBag = String(bagId).replace(/^[(\s]+|[)\s]+$/g, "").trim().toUpperCase();
+      if (!cleanBag) return;
+      linkedMeeshoBagId = cleanBag;
+      meeshoAwaitingBag = false;
+
+      // Notify interceptor.js of the link
+      window.postMessage({
+        type: "UPDATE_MEESHO_BAG_LINK",
+        awb: awb,
+        secondaryAwb: cleanBag
+      }, "*");
+
+      // Persist to backend database
+      chrome.runtime.sendMessage({
+        action: "LINK_MEESHO_BAG",
+        awb: awb,
+        secondaryAwb: cleanBag,
+        packer: "Flipkart VMS Station"
+      });
+
+      // Play cheerful 3-tone chime
+      playMeeshoLinkSound();
+
+      // Update banner UI to bright emerald
+      const banner = document.getElementById("vms-meesho-banner");
+      const bannerText = document.getElementById("vms-meesho-banner-text");
+      if (banner) {
+        banner.style.display = "flex";
+        banner.style.background = "linear-gradient(135deg, #059669, #10b981)";
+      }
+      if (bannerText) {
+        bannerText.innerHTML = `✓ <strong>BAG LINKED:</strong> ${cleanBag} | Pack item & click STOP.`;
+      }
+      const msgText = document.getElementById("vms-sync-msg-text");
+      if (msgText) {
+        msgText.style.display = "inline-block";
+        msgText.textContent = `✓ Linked: ${cleanBag}`;
+      }
+      console.log(`%c[VMS-Sync] Successfully linked Meesho Bag ${cleanBag} with AWB ${awb}`, "background: #059669; color: white; padding: 2px 6px; font-weight: bold;");
+    }
+
+    // Auto-capture Synlabs credentials messages from interceptor
+    if (event.data.type === "SYNLABS_AUTH_CAPTURED" && event.data.token) {
+      chrome.storage.local.get(["synlabs_auth"], (res) => {
+        const prev = res.synlabs_auth || {};
+        prev.token = event.data.token;
+        prev.lastUpdated = Date.now();
+        chrome.storage.local.set({ synlabs_auth: prev });
+        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
+      });
+    }
+    if (event.data.type === "SYNLABS_FEED_CAPTURED" && event.data.feedId) {
+      chrome.storage.local.get(["synlabs_auth"], (res) => {
+        const prev = res.synlabs_auth || {};
+        prev.feedId = event.data.feedId;
+        prev.lastUpdated = Date.now();
+        chrome.storage.local.set({ synlabs_auth: prev });
+        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
+      });
+    }
+    if (event.data.type === "SYNLABS_ENDPOINT_CAPTURED" && event.data.url) {
+      chrome.storage.local.get(["synlabs_auth"], (res) => {
+        const prev = res.synlabs_auth || {};
+        if (event.data.url.includes("signed")) prev.signedUrl = event.data.url;
+        if (event.data.url.includes("update")) prev.updateUrl = event.data.url;
+        prev.lastUpdated = Date.now();
+        chrome.storage.local.set({ synlabs_auth: prev });
+        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
+      });
+    }
+
     // Ugaan Cloud VMS Video Cloner & Auto-Pack
     if (event.data.type === "CLONE_VIDEO_TO_UGAAN") {
       const { awb, videoDataUrl, size } = event.data;
       if (awb && videoDataUrl) {
-        console.log(`[VMS-Sync] Relaying cloned video for ${awb} (${size} bytes) to Ugaan Cloud...`);
+        const secAwb = linkedMeeshoBagId || event.data.secondaryAwb || null;
+        const mpTag = meeshoModeActive ? "MEESHO" : (event.data.marketplace || "FLIPKART");
+        console.log(`[VMS-Sync] Relaying cloned video for ${awb} (${size} bytes, Sec: ${secAwb}, MP: ${mpTag}) to Ugaan Cloud...`);
         showUgaanSyncBadge(awb, "SYNCING");
 
         chrome.runtime.sendMessage({
           action: "CLONE_VIDEO_TO_UGAAN_CLOUD",
           awb: awb,
+          secondaryAwb: secAwb,
+          marketplace: mpTag,
           videoDataUrl: videoDataUrl,
           size: size
         }, (resp) => {
@@ -2332,6 +2527,16 @@
             showUgaanSyncBadge(awb, "FAILED", resp);
           }
         });
+
+        // Reset Meesho link state for next order
+        linkedMeeshoBagId = null;
+        meeshoAwaitingBag = false;
+        activeMeeshoAwb = null;
+        const banner = document.getElementById("vms-meesho-banner");
+        if (banner) {
+          banner.style.display = "none";
+          banner.style.background = "linear-gradient(135deg, #db2777, #9333ea)";
+        }
       }
       return;
     }
@@ -2341,6 +2546,34 @@
       if (!awb) return;
       awb = String(awb).replace(/^[(\s]+|[)\s]+$/g, "").trim();
       if (!awb) return;
+
+      // Handle Meesho 2-Scan Bag Link logic
+      if (meeshoModeActive) {
+        if (meeshoAwaitingBag && activeMeeshoAwb && awb !== activeMeeshoAwb) {
+          // 2nd scan is the Meesho Bag ID barcode!
+          handleMeeshoBagLinked(activeMeeshoAwb, awb);
+          return; // Stop here, do not treat Bag ID as a new shipping label!
+        } else {
+          // 1st scan is the Courier AWB!
+          meeshoAwaitingBag = true;
+          activeMeeshoAwb = awb;
+          linkedMeeshoBagId = null;
+          const banner = document.getElementById("vms-meesho-banner");
+          const bannerText = document.getElementById("vms-meesho-banner-text");
+          const bagInput = document.getElementById("vms-meesho-bag-input");
+          if (banner) {
+            banner.style.display = "flex";
+            banner.style.background = "linear-gradient(135deg, #db2777, #9333ea)";
+          }
+          if (bannerText) {
+            bannerText.innerHTML = `⚡ <strong>STEP 2:</strong> SCAN MEESHO BAG ID NOW (AWB: ${awb})`;
+          }
+          if (bagInput) {
+            bagInput.value = "";
+            setTimeout(() => bagInput.focus(), 150);
+          }
+        }
+      }
 
       if (!isPackingScreenActive()) {
         console.log(`[VMS-Sync] Ignored scan because not on active packing screen: ${awb}`);

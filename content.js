@@ -1254,5 +1254,26 @@
     });
   }
 
+  // --- Ugaan Cloud <-> Flipkart VMS Two-Way Bridge ---
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'UGAAN_PUSH_TO_FKVMS') {
+      const { awb, secondaryAwb, videoDataUrl, size } = e.data;
+      console.log(`[Ugaan-FKVMS Bridge] Relaying video for ${awb} to background service worker...`);
+      chrome.runtime.sendMessage({
+        action: 'PUSH_VIDEO_TO_FLIPKART_VMS',
+        awb,
+        secondaryAwb,
+        videoDataUrl,
+        size
+      }, (res) => {
+        window.postMessage({
+          type: 'UGAAN_FKVMS_PUSH_RESULT',
+          awb,
+          result: res || { success: false, error: 'No response from background extension' }
+        }, '*');
+      });
+    }
+  });
+
 })();
 

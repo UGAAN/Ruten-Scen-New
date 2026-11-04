@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Ugaan Hub: Return Scan & VMS-Sync",
-  "version": "2.2.0",
-  "description": "All-in-One Return QC Station, Auto Flipkart VMS to EliteSecom OMS Pickup Sync, and Live Packing Video Clone to Ugaan Cloud.",
+  "version": "2.3.0",
+  "description": "Unified Dual-Mode VMS: 2-Scan Meesho Bag Link inside Flipkart VMS + Auto-Push Ugaan VMS Videos to Flipkart VMS.",
   "permissions": [
     "storage",
     "downloads",

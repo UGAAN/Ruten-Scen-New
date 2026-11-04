@@ -1907,6 +1907,176 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // --- Link Meesho Bag ID to AWB in Ugaan Cloud ---
+  if (request.action === "LINK_MEESHO_BAG") {
+    (async () => {
+      try {
+        const { awb, secondaryAwb, packer } = request;
+        const endpoints = [
+          "http://192.168.1.117:8090/api/vms/meesho-link",
+          "http://127.0.0.1:8090/api/vms/meesho-link",
+          "http://localhost:8090/api/vms/meesho-link",
+          "https://cloud.ugaan.in/api/vms/meesho-link"
+        ];
+        let resData = null;
+        for (const ep of endpoints) {
+          try {
+            const resp = await fetch(ep, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                awb: awb,
+                secondary_awb: secondaryAwb,
+                packer: packer || "Flipkart VMS Station"
+              }),
+              signal: AbortSignal.timeout(4000)
+            });
+            if (resp.ok) {
+              resData = await resp.json();
+              console.log(`[VMS-Sync] Linked Meesho Bag at ${ep}:`, resData);
+              break;
+            }
+          } catch (_) {}
+        }
+        sendResponse(resData || { success: false });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
+  // --- Update Captured Synlabs Credentials ---
+  if (request.action === "UPDATE_SYNLABS_AUTH") {
+    if (request.data) {
+      chrome.storage.local.get(["synlabs_auth"], (res) => {
+        const current = res.synlabs_auth || {};
+        const updated = Object.assign({}, current, request.data, { lastUpdated: Date.now() });
+        chrome.storage.local.set({ synlabs_auth: updated });
+        console.log("[Synlabs-Engine] Synlabs auth credentials updated in storage:", {
+          hasToken: !!updated.token,
+          feedId: updated.feedId,
+          hasSignedUrl: !!updated.signedUrl,
+          hasUpdateUrl: !!updated.updateUrl
+        });
+      });
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+
+  // --- Push Video from Ugaan VMS to Flipkart VMS (fkvms.synlabs.io) ---
+  if (request.action === "PUSH_VIDEO_TO_FLIPKART_VMS") {
+    (async () => {
+      try {
+        const { awb, videoDataUrl, size } = request;
+        if (!awb || !videoDataUrl) {
+          sendResponse({ success: false, error: "Missing AWB or video data" });
+          return;
+        }
+
+        const authStore = await chrome.storage.local.get(["synlabs_auth"]);
+        const synlabs = authStore.synlabs_auth || {};
+
+        if (!synlabs.token || !synlabs.feedId) {
+          console.warn("[FKVMS-AutoPush] Missing active Synlabs session token or feedId.");
+          sendResponse({
+            success: false,
+            reason: "NO_FKVMS_SESSION",
+            message: "Flipkart VMS session not active. Please open fkvms.synlabs.io once to connect."
+          });
+          return;
+        }
+
+        // Convert data URL to Blob
+        let videoBlob = null;
+        try {
+          const blobResp = await fetch(videoDataUrl);
+          videoBlob = await blobResp.blob();
+        } catch (_) {
+          const parts = videoDataUrl.split(",");
+          const mime = (parts[0].match(/:(.*?);/) || [])[1] || "video/webm";
+          const b64 = (parts[1] || "").replace(/\s/g, "");
+          const binaryStr = atob(b64);
+          const len = binaryStr.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          videoBlob = new Blob([bytes], { type: mime });
+        }
+
+        // 1. Request S3 signed upload URL
+        const signedUrlEndpoint = synlabs.signedUrl || "https://fkvms.synlabs.io/api/feed/video/signed";
+        console.log(`[FKVMS-AutoPush] Requesting signed S3 URL from ${signedUrlEndpoint} for AWB: ${awb}`);
+
+        const signedResp = await fetch(signedUrlEndpoint, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${synlabs.token}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*"
+          },
+          body: JSON.stringify({
+            feedId: synlabs.feedId,
+            trackingId: awb,
+            version: "WEB"
+          })
+        });
+
+        if (!signedResp.ok) {
+          throw new Error(`Synlabs signed URL returned HTTP ${signedResp.status}`);
+        }
+
+        const signedData = await signedResp.json();
+        const s3TargetUrl = signedData.url || signedData.signedUrl || signedData.uploadUrl;
+        if (!s3TargetUrl) {
+          throw new Error("No S3 upload target returned from Synlabs");
+        }
+
+        // 2. PUT binary video payload to S3
+        console.log(`[FKVMS-AutoPush] Uploading video to S3 (${videoBlob.size} bytes)...`);
+        const s3Resp = await fetch(s3TargetUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": videoBlob.type || "video/webm"
+          },
+          body: videoBlob
+        });
+
+        if (!s3Resp.ok) {
+          throw new Error(`S3 upload returned HTTP ${s3Resp.status}`);
+        }
+
+        // 3. Finalize upload with Synlabs
+        const updateEndpoint = synlabs.updateUrl || `https://fkvms.synlabs.io/api/feed/video/update?trackingId=${encodeURIComponent(awb)}`;
+        console.log(`[FKVMS-AutoPush] Finalizing with Synlabs at ${updateEndpoint}`);
+
+        const updateResp = await fetch(updateEndpoint, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${synlabs.token}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*"
+          },
+          body: JSON.stringify({
+            feedId: synlabs.feedId,
+            trackingId: awb,
+            status: "SUCCESS",
+            version: "WEB"
+          })
+        });
+
+        console.log(`%c[FKVMS-AutoPush] Video for AWB ${awb} uploaded to Flipkart VMS successfully!`, "color: #00E676; font-weight: bold;");
+        sendResponse({ success: true, awb: awb, fkvms: true });
+      } catch (pushErr) {
+        console.error("[FKVMS-AutoPush] Error pushing video to Flipkart VMS:", pushErr);
+        sendResponse({ success: false, error: pushErr.message });
+      }
+    })();
+    return true;
+  }
+
   // --- Ugaan Cloud Video Cloner Action ---
   if (request.action === "CLONE_VIDEO_TO_UGAAN_CLOUD") {
     (async () => {
@@ -1943,18 +2113,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         const preferredEndpoint = lastSuccessfulUgaanBase
-          ? `${lastSuccessfulUgaanBase}/api/ajio/external-video-sync`
+          ? `${lastSuccessfulUgaanBase}/api/vms/external-video-sync`
           : null;
 
         const endpoints = Array.from(new Set([
           customEndpoint,
           preferredEndpoint,
-          "http://192.168.1.117:3002/api/ajio/external-video-sync",
+          "http://192.168.1.117:8090/api/vms/external-video-sync",
           "http://192.168.1.117:8090/api/ajio/external-video-sync",
+          "http://127.0.0.1:8090/api/vms/external-video-sync",
           "http://127.0.0.1:8090/api/ajio/external-video-sync",
+          "http://localhost:8090/api/vms/external-video-sync",
           "http://localhost:8090/api/ajio/external-video-sync",
+          "http://192.168.1.117:3002/api/ajio/external-video-sync",
           "http://127.0.0.1:3002/api/ajio/external-video-sync",
           "http://localhost:3002/api/ajio/external-video-sync",
+          "https://cloud.ugaan.in/api/vms/external-video-sync",
           "https://cloud.ugaan.in/api/ajio/external-video-sync"
         ].filter(Boolean)));
 
@@ -1972,8 +2146,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           try {
             const formData = new FormData();
             formData.append("awb", awb);
+            if (request.secondaryAwb) {
+              formData.append("secondary_awb", request.secondaryAwb);
+            }
+            if (request.marketplace) {
+              formData.append("marketplace", request.marketplace);
+            }
             formData.append("video", videoBlob, `${awb}.${fileExt}`);
-            formData.append("packer", "Flipkart VMS Station");
+            formData.append("packer", request.packer || "Flipkart VMS Station");
 
             const resp = await fetch(ep, {
               method: "POST",

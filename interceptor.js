@@ -10,12 +10,91 @@
 
   let customFkPattern = "awb/scan";
 
+  let activeSecondaryAwb = null;
+
   window.addEventListener("message", function (event) {
     if (event.data && event.data.type === "UPDATE_FK_PATTERN" && event.data.fkPattern) {
       customFkPattern = event.data.fkPattern.trim();
       console.log("[Ugaan VMS-Sync] Updated Flipkart scan pattern keyword to:", customFkPattern);
     }
+    if (event.data && event.data.type === "UPDATE_MEESHO_BAG_LINK") {
+      activeSecondaryAwb = event.data.secondaryAwb;
+      console.log("%c[Ugaan VMS-Sync] Interceptor linked Meesho Bag ID: " + activeSecondaryAwb, "color: #ec4899; font-weight: bold;");
+    }
   });
+
+  // Auto-capture Synlabs Credentials
+  let capturedAuthToken = null;
+  let capturedFeedId = null;
+
+  function captureSynlabsCredentials(headers, body, url) {
+    try {
+      let token = null;
+      if (headers) {
+        if (typeof headers.get === "function") {
+          token = headers.get("Authorization") || headers.get("authorization");
+        } else if (typeof headers === "object") {
+          token = headers["Authorization"] || headers["authorization"] || headers["Authorization".toLowerCase()];
+        }
+      }
+      if (token && typeof token === "string" && token.startsWith("Bearer ")) {
+        const cleanTok = token.replace("Bearer ", "").trim();
+        if (cleanTok && cleanTok.length > 20 && cleanTok !== capturedAuthToken) {
+          capturedAuthToken = cleanTok;
+          window.postMessage({
+            source: "VMS_SYNC_PAGE",
+            type: "SYNLABS_AUTH_CAPTURED",
+            token: cleanTok
+          }, "*");
+        }
+      }
+
+      if (body) {
+        try {
+          const parsed = typeof body === "string" ? JSON.parse(body) : body;
+          if (parsed && parsed.feedId && parsed.feedId !== capturedFeedId) {
+            capturedFeedId = parsed.feedId;
+            window.postMessage({
+              source: "VMS_SYNC_PAGE",
+              type: "SYNLABS_FEED_CAPTURED",
+              feedId: parsed.feedId
+            }, "*");
+          }
+        } catch (_) {}
+      }
+
+      if (url && typeof url === "string") {
+        if (url.includes("signed") || url.includes("update?") || url.includes("connection")) {
+          window.postMessage({
+            source: "VMS_SYNC_PAGE",
+            type: "SYNLABS_ENDPOINT_CAPTURED",
+            url: url
+          }, "*");
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Initial localStorage scan for Synlabs credentials
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      const val = localStorage.getItem(k);
+      if (!val) continue;
+      if (k.toLowerCase().includes("token") || k.toLowerCase().includes("auth")) {
+        const cleanTok = val.replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "");
+        if (cleanTok.length > 20) {
+          captureSynlabsCredentials({ Authorization: "Bearer " + cleanTok }, null, "localStorage");
+        }
+      }
+      if (k.toLowerCase().includes("feed")) {
+        const cleanFeed = val.replace(/^["']|["']$/g, "");
+        if (cleanFeed.length > 5) {
+          captureSynlabsCredentials(null, { feedId: cleanFeed }, "localStorage");
+        }
+      }
+    }
+  } catch (_) {}
 
   function isFkVmsScanUrl(url) {
     if (!url) return false;
@@ -290,9 +369,12 @@
           source: "VMS_SYNC_PAGE",
           type: "CLONE_VIDEO_TO_UGAAN",
           awb: cleanAwb,
+          secondaryAwb: activeSecondaryAwb,
+          marketplace: activeSecondaryAwb ? "MEESHO" : "FLIPKART",
           videoDataUrl: base64Data,
           size: finalBlob.size
         }, "*");
+        activeSecondaryAwb = null;
       };
       reader.readAsDataURL(finalBlob);
     } catch (err) {
@@ -352,6 +434,9 @@
     try {
       const [resource, config] = args;
       const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
+
+      // Capture Synlabs credentials & endpoints
+      captureSynlabsCredentials(config && config.headers, config && config.body, url);
 
       if (isFkVmsScanUrl(url)) {
         isTarget = true;
@@ -419,12 +504,23 @@
 
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     this._vms_sync_url = url;
+    this._vms_headers = {};
     return originalXhrOpen.call(this, method, url, ...rest);
+  };
+
+  const origSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
+    if (!this._vms_headers) this._vms_headers = {};
+    this._vms_headers[header] = value;
+    return origSetRequestHeader.call(this, header, value);
   };
 
   XMLHttpRequest.prototype.send = function (body) {
     try {
       const url = this._vms_sync_url || "";
+
+      // Capture Synlabs credentials & endpoints
+      captureSynlabsCredentials(this._vms_headers, body, url);
 
       // 1. Intercept video chunk uploads (Blob / ArrayBuffer > 10KB)
       const isBinaryChunk = body && (
