@@ -64,11 +64,15 @@
       }
 
       if (url && typeof url === "string") {
-        if (url.includes("signed") || url.includes("update?") || url.includes("connection")) {
+        if (url.includes("signed") || url.includes("update") || url.includes("connection")) {
+          let resolvedUrl = url;
+          try {
+            resolvedUrl = new URL(url, window.location.origin).toString();
+          } catch (_) {}
           window.postMessage({
             source: "VMS_SYNC_PAGE",
             type: "SYNLABS_ENDPOINT_CAPTURED",
-            url: url
+            url: resolvedUrl
           }, "*");
         }
       }
@@ -82,14 +86,26 @@
       const val = localStorage.getItem(k);
       if (!val) continue;
       if (k.toLowerCase().includes("token") || k.toLowerCase().includes("auth")) {
-        const cleanTok = val.replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "");
-        if (cleanTok.length > 20) {
+        let cleanTok = val.replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "");
+        if (cleanTok.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(cleanTok);
+            cleanTok = parsed.token || parsed.accessToken || parsed.access_token || parsed.authToken || parsed.jwt || "";
+          } catch (_) {}
+        }
+        if (cleanTok && typeof cleanTok === "string" && cleanTok.length > 20 && !cleanTok.startsWith("{")) {
           captureSynlabsCredentials({ Authorization: "Bearer " + cleanTok }, null, "localStorage");
         }
       }
       if (k.toLowerCase().includes("feed")) {
-        const cleanFeed = val.replace(/^["']|["']$/g, "");
-        if (cleanFeed.length > 5) {
+        let cleanFeed = val.replace(/^["']|["']$/g, "");
+        if (cleanFeed.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(cleanFeed);
+            cleanFeed = parsed.feedId || parsed.feed_id || parsed.feed || "";
+          } catch (_) {}
+        }
+        if (cleanFeed && typeof cleanFeed === "string" && cleanFeed.length > 2 && !cleanFeed.startsWith("{")) {
           captureSynlabsCredentials(null, { feedId: cleanFeed }, "localStorage");
         }
       }

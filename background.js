@@ -1892,6 +1892,19 @@ setInterval(checkBackgroundUpdates, 30000);
 checkBackgroundUpdates();
 
 /**
+ * Safely resolves a Synlabs endpoint against the base origin https://fkvms.synlabs.io
+ * Prevents Chrome Extension service worker from executing relative fetches against chrome-extension://<id>/
+ */
+function resolveSynlabsUrl(endpoint, fallbackPath) {
+  const target = endpoint || fallbackPath;
+  try {
+    return new URL(target, "https://fkvms.synlabs.io").toString();
+  } catch (_) {
+    return target;
+  }
+}
+
+/**
  * Push Video from Ugaan VMS to Flipkart VMS (fkvms.synlabs.io) Engine
  * Verifies feed connection, retrieves S3 signed URL, uploads binary video payload,
  * and updates Flipkart VMS record with the Courier AWB.
@@ -1902,213 +1915,244 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
     const storageLocal = deps.storage || (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local);
 
     const { awb, orderId, secondaryAwb, videoDataUrl, size } = request || {};
-  if (!awb || !videoDataUrl) {
-    return {
-      success: false,
-      reason: "MISSING_PAYLOAD",
-      error: "Missing Courier AWB or video data"
-    };
-  }
-
-  let synlabs = {};
-  if (storageLocal) {
-    const authStore = await storageLocal.get(["synlabs_auth"]);
-    synlabs = (authStore && authStore.synlabs_auth) || {};
-  } else if (deps.synlabsAuth) {
-    synlabs = deps.synlabsAuth;
-  }
-
-  if (!synlabs.token || !synlabs.feedId) {
-    console.warn("[FKVMS-AutoPush] Missing active Synlabs session token or feedId.");
-    return {
-      success: false,
-      reason: "NO_FKVMS_SESSION",
-      message: "Flipkart VMS session not active. Please open and login to fkvms.synlabs.io once to connect.",
-      error: "Flipkart VMS session not active. Please open and login to fkvms.synlabs.io once to connect.",
-      awb: awb
-    };
-  }
-
-  // 1. Connection Verification (/api/feed/update/connection)
-  const connectionEndpoint = synlabs.connectionUrl || "https://fkvms.synlabs.io/api/feed/update/connection";
-  console.log(`[FKVMS-AutoPush] Verifying feed connection with ${connectionEndpoint} (Feed ID: ${synlabs.feedId})...`);
-
-  try {
-    const connResp = await fetchFn(connectionEndpoint, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${synlabs.token}`,
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/plain, */*"
-      },
-      body: JSON.stringify({
-        feedId: synlabs.feedId,
-        status: "CONNECTED",
-        version: "WEB"
-      })
-    });
-
-    if (connResp.status === 401 || connResp.status === 403) {
-      console.warn(`[FKVMS-AutoPush] Synlabs session token expired or invalid (HTTP ${connResp.status}).`);
+    if (!awb || !videoDataUrl) {
       return {
         success: false,
-        reason: "EXPIRED_FKVMS_SESSION",
-        error: `Flipkart VMS session expired or unauthorized (HTTP ${connResp.status}). Please re-login to fkvms.synlabs.io.`,
+        reason: "MISSING_PAYLOAD",
+        error: "Missing Courier AWB or video data"
+      };
+    }
+
+    let synlabs = {};
+    if (storageLocal) {
+      const authStore = await storageLocal.get(["synlabs_auth"]);
+      synlabs = (authStore && authStore.synlabs_auth) || {};
+    } else if (deps.synlabsAuth) {
+      synlabs = deps.synlabsAuth;
+    }
+
+    if (!synlabs.token || !synlabs.feedId) {
+      console.warn("[FKVMS-AutoPush] Missing active Synlabs session token or feedId.");
+      return {
+        success: false,
+        reason: "NO_FKVMS_SESSION",
+        message: "Flipkart VMS session not active. Please open and login to fkvms.synlabs.io once to connect.",
+        error: "Flipkart VMS session not active. Please open and login to fkvms.synlabs.io once to connect.",
         awb: awb
       };
     }
 
-    if (!connResp.ok) {
-      throw new Error(`Flipkart VMS connection check failed (HTTP ${connResp.status})`);
-    }
-  } catch (connErr) {
-    if (connErr.message && (connErr.message.includes("HTTP") || connErr.message.includes("Flipkart VMS session"))) {
-      throw connErr;
-    }
-    console.error("[FKVMS-AutoPush] Connection verification network error:", connErr);
-    throw new Error(`Network error connecting to Flipkart VMS: ${connErr.message}`);
-  }
+    const rawToken = synlabs.token ? String(synlabs.token).replace(/^Bearer\s+/i, "").trim() : "";
+    const cleanFeedId = synlabs.feedId ? String(synlabs.feedId).trim() : "";
 
-  // Convert data URL to Blob
-  let videoBlob = null;
-  try {
-    if (typeof fetch === 'function' && !videoDataUrl.startsWith('data:')) {
-      const blobResp = await fetchFn(videoDataUrl);
-      videoBlob = await blobResp.blob();
+    if (!rawToken || !cleanFeedId) {
+      return {
+        success: false,
+        reason: "NO_FKVMS_SESSION",
+        message: "Flipkart VMS session token or feedId is empty.",
+        error: "Flipkart VMS session token or feedId is empty.",
+        awb: awb
+      };
     }
-  } catch (_) {}
 
-  if (!videoBlob) {
-    const parts = videoDataUrl.split(",");
-    const mimeMatch = (parts[0] || "").match(/:(.*?);/);
-    const mime = (mimeMatch && mimeMatch[1]) || "video/webm";
-    const b64 = (parts[1] || parts[0] || "").replace(/\s/g, "");
-    if (typeof Buffer !== "undefined") {
-      const buffer = Buffer.from(b64, "base64");
-      videoBlob = new Blob([buffer], { type: mime });
-    } else {
-      const binaryStr = atob(b64);
-      const len = binaryStr.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
+    // Convert and validate video payload before initiating network requests
+    let videoBlob = null;
+    try {
+      if (typeof fetch === 'function') {
+        const blobResp = await fetchFn(videoDataUrl);
+        videoBlob = await blobResp.blob();
       }
-      videoBlob = new Blob([bytes], { type: mime });
+    } catch (_) {}
+
+    if (!videoBlob) {
+      const parts = videoDataUrl.split(",");
+      const mimeMatch = (parts[0] || "").match(/:(.*?);/);
+      const mime = (mimeMatch && mimeMatch[1]) || "video/webm";
+      const b64 = (parts[1] || parts[0] || "").replace(/\s/g, "");
+      if (typeof Buffer !== "undefined") {
+        const buffer = Buffer.from(b64, "base64");
+        videoBlob = new Blob([buffer], { type: mime });
+      } else {
+        const binaryStr = atob(b64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        videoBlob = new Blob([bytes], { type: mime });
+      }
     }
-  }
 
-  if (!videoBlob || videoBlob.size === 0) {
-    throw new Error("Video payload is empty (0 bytes)");
-  }
+    if (!videoBlob || videoBlob.size === 0) {
+      return {
+        success: false,
+        reason: "INVALID_VIDEO",
+        error: "Video payload is empty (0 bytes)",
+        awb: awb
+      };
+    }
 
-  // 2. Request S3 signed upload URL (/api/feed/video/signed)
-  const signedUrlEndpoint = synlabs.signedUrl || "https://fkvms.synlabs.io/api/feed/video/signed";
-  console.log(`[FKVMS-AutoPush] Requesting signed S3 URL from ${signedUrlEndpoint} for Courier AWB: ${awb}`);
+    // 1. Connection Verification (/api/feed/update/connection)
+    const connectionEndpoint = resolveSynlabsUrl(synlabs.connectionUrl, "/api/feed/update/connection");
+    console.log(`[FKVMS-AutoPush] Verifying feed connection with ${connectionEndpoint} (Feed ID: ${cleanFeedId})...`);
 
-  const signedResp = await fetchFn(signedUrlEndpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${synlabs.token}`,
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/plain, */*"
-    },
-    body: JSON.stringify({
-      feedId: synlabs.feedId,
-      trackingId: awb,
-      version: "WEB"
-    })
-  });
+    try {
+      const connResp = await fetchFn(connectionEndpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${rawToken}`,
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/plain, */*"
+        },
+        body: JSON.stringify({
+          feedId: cleanFeedId,
+          status: "CONNECTED",
+          version: "WEB"
+        })
+      });
 
-  if (signedResp.status === 401 || signedResp.status === 403) {
-    return {
-      success: false,
-      reason: "EXPIRED_FKVMS_SESSION",
-      error: `Flipkart VMS session expired during signed URL retrieval (HTTP ${signedResp.status}).`,
-      awb: awb
-    };
-  }
+      if (connResp.status === 401 || connResp.status === 403) {
+        console.warn(`[FKVMS-AutoPush] Synlabs session token expired or invalid (HTTP ${connResp.status}).`);
+        return {
+          success: false,
+          reason: "EXPIRED_FKVMS_SESSION",
+          error: `Flipkart VMS session expired or unauthorized (HTTP ${connResp.status}). Please re-login to fkvms.synlabs.io.`,
+          awb: awb
+        };
+      }
 
-  if (!signedResp.ok) {
-    throw new Error(`Synlabs signed URL returned HTTP ${signedResp.status}`);
-  }
+      if (!connResp.ok) {
+        throw new Error(`Flipkart VMS connection check failed (HTTP ${connResp.status})`);
+      }
+    } catch (connErr) {
+      if (connErr.message && (connErr.message.includes("HTTP") || connErr.message.includes("Flipkart VMS session"))) {
+        throw connErr;
+      }
+      console.error("[FKVMS-AutoPush] Connection verification network error:", connErr);
+      throw new Error(`Network error connecting to Flipkart VMS: ${connErr.message}`);
+    }
 
-  const signedData = await signedResp.json();
-  const s3TargetUrl = signedData.url || signedData.signedUrl || signedData.uploadUrl;
-  if (!s3TargetUrl) {
-    throw new Error("No S3 upload target returned from Synlabs");
-  }
+    // 2. Request S3 signed upload URL (/api/feed/video/signed)
+    const signedUrlEndpoint = resolveSynlabsUrl(synlabs.signedUrl, "/api/feed/video/signed");
+    console.log(`[FKVMS-AutoPush] Requesting signed S3 URL from ${signedUrlEndpoint} for Courier AWB: ${awb}`);
 
-  // 3. PUT binary video payload to S3
-  console.log(`[FKVMS-AutoPush] Uploading video to S3 (${videoBlob.size} bytes)...`);
-  const s3Resp = await fetchFn(s3TargetUrl, {
-    method: "PUT",
-    headers: {
+    const signedResp = await fetchFn(signedUrlEndpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${rawToken}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*"
+      },
+      body: JSON.stringify({
+        feedId: cleanFeedId,
+        trackingId: awb,
+        version: "WEB"
+      })
+    });
+
+    if (signedResp.status === 401 || signedResp.status === 403) {
+      return {
+        success: false,
+        reason: "EXPIRED_FKVMS_SESSION",
+        error: `Flipkart VMS session expired during signed URL retrieval (HTTP ${signedResp.status}).`,
+        awb: awb
+      };
+    }
+
+    if (!signedResp.ok) {
+      throw new Error(`Synlabs signed URL returned HTTP ${signedResp.status}`);
+    }
+
+    const signedData = await signedResp.json();
+    const s3TargetUrl = signedData.url || signedData.signedUrl || signedData.uploadUrl ||
+      (signedData.data && (signedData.data.url || signedData.data.signedUrl || signedData.data.uploadUrl)) ||
+      (signedData.result && (signedData.result.url || signedData.result.signedUrl || signedData.result.uploadUrl));
+    if (!s3TargetUrl) {
+      throw new Error("No S3 upload target returned from Synlabs");
+    }
+
+    // 3. PUT binary video payload to S3
+    const extraHeaders = signedData.headers || (signedData.data && signedData.data.headers) || {};
+    const s3Headers = Object.assign({
       "Content-Type": videoBlob.type || "video/webm"
-    },
-    body: videoBlob
-  });
+    }, extraHeaders);
 
-  if (!s3Resp.ok) {
-    throw new Error(`S3 video PUT upload failed with HTTP ${s3Resp.status}`);
-  }
+    console.log(`[FKVMS-AutoPush] Uploading video to S3 (${videoBlob.size} bytes)...`);
+    const s3Resp = await fetchFn(s3TargetUrl, {
+      method: "PUT",
+      headers: s3Headers,
+      body: videoBlob
+    });
 
-  // 4. Finalize upload with Synlabs (/api/feed/video/update?trackingId=...)
-  let updateEndpoint = synlabs.updateUrl || "https://fkvms.synlabs.io/api/feed/video/update";
-  try {
-    const urlObj = new URL(updateEndpoint, "https://fkvms.synlabs.io");
-    urlObj.searchParams.set("trackingId", awb);
-    updateEndpoint = urlObj.toString();
-  } catch (_) {
-    const base = updateEndpoint.split("?")[0];
-    updateEndpoint = `${base}?trackingId=${encodeURIComponent(awb)}`;
-  }
+    if (!s3Resp.ok) {
+      throw new Error(`S3 video PUT upload failed with HTTP ${s3Resp.status}`);
+    }
 
-  console.log(`[FKVMS-AutoPush] Finalizing with Synlabs at ${updateEndpoint}`);
-  const updateResp = await fetchFn(updateEndpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${synlabs.token}`,
-      "Content-Type": "application/json",
-      "Accept": "application/json, text/plain, */*"
-    },
-    body: JSON.stringify({
-      feedId: synlabs.feedId,
+    // 4. Finalize upload with Synlabs (/api/feed/video/update?trackingId=...)
+    let updateEndpoint = resolveSynlabsUrl(synlabs.updateUrl, "/api/feed/video/update");
+    try {
+      const urlObj = new URL(updateEndpoint, "https://fkvms.synlabs.io");
+      urlObj.searchParams.set("trackingId", awb);
+      updateEndpoint = urlObj.toString();
+    } catch (_) {
+      const base = updateEndpoint.split("?")[0];
+      updateEndpoint = `${base}?trackingId=${encodeURIComponent(awb)}`;
+    }
+
+    console.log(`[FKVMS-AutoPush] Finalizing with Synlabs at ${updateEndpoint}`);
+    const updateBody = {
+      feedId: cleanFeedId,
       trackingId: awb,
       status: "SUCCESS",
       version: "WEB"
-    })
-  });
+    };
+    if (orderId && orderId !== awb) {
+      updateBody.orderId = orderId;
+    }
+    if (secondaryAwb) {
+      updateBody.secondaryAwb = secondaryAwb;
+    }
 
-  if (updateResp.status === 401 || updateResp.status === 403) {
+    const updateResp = await fetchFn(updateEndpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${rawToken}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*"
+      },
+      body: JSON.stringify(updateBody)
+    });
+
+    if (updateResp.status === 401 || updateResp.status === 403) {
+      return {
+        success: false,
+        reason: "EXPIRED_FKVMS_SESSION",
+        error: `Flipkart VMS session expired during video update registration (HTTP ${updateResp.status}).`,
+        awb: awb
+      };
+    }
+
+    if (!updateResp.ok) {
+      throw new Error(`Synlabs video update registration failed with HTTP ${updateResp.status}`);
+    }
+
+    console.log(`%c[FKVMS-AutoPush] Video for Courier AWB ${awb} uploaded to Flipkart VMS successfully!`, "color: #00E676; font-weight: bold;");
+    return {
+      success: true,
+      awb: awb,
+      fkvms: true,
+      feedId: cleanFeedId,
+      message: `Video saved into Flipkart VMS under Courier AWB ${awb}`
+    };
+  } catch (pushErr) {
+    console.error("[FKVMS-AutoPush] Error pushing video to Flipkart VMS:", pushErr);
     return {
       success: false,
-      reason: "EXPIRED_FKVMS_SESSION",
-      error: `Flipkart VMS session expired during video update registration (HTTP ${updateResp.status}).`,
-      awb: awb
+      reason: "UPLOAD_FAILED",
+      error: pushErr.message || "Failed to upload video to Flipkart VMS",
+      awb: (request && request.awb) || null
     };
   }
-
-  if (!updateResp.ok) {
-    throw new Error(`Synlabs video update registration failed with HTTP ${updateResp.status}`);
-  }
-
-  console.log(`%c[FKVMS-AutoPush] Video for Courier AWB ${awb} uploaded to Flipkart VMS successfully!`, "color: #00E676; font-weight: bold;");
-  return {
-    success: true,
-    awb: awb,
-    fkvms: true,
-    feedId: synlabs.feedId,
-    message: `Video saved into Flipkart VMS under Courier AWB ${awb}`
-  };
-} catch (pushErr) {
-  console.error("[FKVMS-AutoPush] Error pushing video to Flipkart VMS:", pushErr);
-  return {
-    success: false,
-    reason: "UPLOAD_FAILED",
-    error: pushErr.message || "Failed to upload video to Flipkart VMS",
-    awb: (request && request.awb) || null
-  };
-}
 }
 
 // Listen for messages from popup, content script, or scanner page
@@ -3278,6 +3322,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     pushVideoToFlipkartVms,
+    resolveSynlabsUrl,
   };
 }
 
