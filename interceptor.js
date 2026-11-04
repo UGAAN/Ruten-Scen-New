@@ -37,8 +37,8 @@
           token = headers["Authorization"] || headers["authorization"] || headers["Authorization".toLowerCase()];
         }
       }
-      if (token && typeof token === "string" && token.startsWith("Bearer ")) {
-        const cleanTok = token.replace("Bearer ", "").trim();
+      if (token && typeof token === "string") {
+        const cleanTok = token.replace(/^Bearer\s+/i, "").trim();
         if (cleanTok && cleanTok.length > 20 && cleanTok !== capturedAuthToken) {
           capturedAuthToken = cleanTok;
           window.postMessage({
@@ -51,13 +51,21 @@
 
       if (body) {
         try {
-          const parsed = typeof body === "string" ? JSON.parse(body) : body;
-          if (parsed && parsed.feedId && parsed.feedId !== capturedFeedId) {
-            capturedFeedId = parsed.feedId;
+          let parsed = null;
+          if (typeof body === "string") {
+            try { parsed = JSON.parse(body); } catch (_) {}
+          } else if (typeof body === "object") {
+            parsed = body;
+          }
+          const feedCandidate = (parsed && (parsed.feedId || parsed.feed_id || parsed.feed)) ||
+            (typeof FormData !== "undefined" && body instanceof FormData && (body.get("feedId") || body.get("feed_id") || body.get("feed"))) ||
+            (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams && (body.get("feedId") || body.get("feed_id") || body.get("feed")));
+          if (feedCandidate && String(feedCandidate).trim() && String(feedCandidate).trim() !== capturedFeedId) {
+            capturedFeedId = String(feedCandidate).trim();
             window.postMessage({
               source: "VMS_SYNC_PAGE",
               type: "SYNLABS_FEED_CAPTURED",
-              feedId: parsed.feedId
+              feedId: capturedFeedId
             }, "*");
           }
         } catch (_) {}
@@ -79,7 +87,15 @@
     } catch (_) {}
   }
 
-  // Initial localStorage scan for Synlabs credentials
+  // Initial scan: query parameters and localStorage for Synlabs credentials
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const feedParam = urlParams.get("feedId") || urlParams.get("feed_id") || urlParams.get("feed");
+    if (feedParam && feedParam.length > 2) {
+      captureSynlabsCredentials(null, { feedId: feedParam }, window.location.href);
+    }
+  } catch (_) {}
+
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);

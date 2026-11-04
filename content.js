@@ -1256,6 +1256,7 @@
 
   // --- Ugaan Cloud <-> Flipkart VMS Two-Way Bridge ---
   window.addEventListener('message', (e) => {
+    if (e.source && e.source !== window) return;
     if (e.data && e.data.type === 'UGAAN_PUSH_TO_FKVMS') {
       const { awb, orderId, secondaryAwb, videoDataUrl, size } = e.data;
       console.log(`[Ugaan-FKVMS Bridge] Relaying video for Courier AWB ${awb} (${size} bytes) to background service worker...`);

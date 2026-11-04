@@ -2472,35 +2472,53 @@
       console.log(`%c[VMS-Sync] Successfully linked Meesho Bag ${cleanBag} with AWB ${awb}`, "background: #059669; color: white; padding: 2px 6px; font-weight: bold;");
     }
 
-    // Auto-capture Synlabs credentials messages from interceptor
+    // Auto-capture Synlabs credentials messages from interceptor with synchronized memory cache
+    if (!window._synlabsAuthCache) {
+      window._synlabsAuthCache = {};
+      try {
+        chrome.storage.local.get(["synlabs_auth"], (res) => {
+          if (res && res.synlabs_auth) {
+            window._synlabsAuthCache = Object.assign({}, res.synlabs_auth, window._synlabsAuthCache);
+          }
+        });
+      } catch (_) {}
+    }
+
     if (event.data.type === "SYNLABS_AUTH_CAPTURED" && event.data.token) {
-      chrome.storage.local.get(["synlabs_auth"], (res) => {
-        const prev = res.synlabs_auth || {};
-        prev.token = event.data.token;
-        prev.lastUpdated = Date.now();
-        chrome.storage.local.set({ synlabs_auth: prev });
-        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
-      });
+      window._synlabsAuthCache.token = event.data.token;
+      window._synlabsAuthCache.lastUpdated = Date.now();
+      try {
+        chrome.storage.local.set({ synlabs_auth: window._synlabsAuthCache });
+        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: { token: event.data.token } });
+      } catch (_) {}
     }
     if (event.data.type === "SYNLABS_FEED_CAPTURED" && event.data.feedId) {
-      chrome.storage.local.get(["synlabs_auth"], (res) => {
-        const prev = res.synlabs_auth || {};
-        prev.feedId = event.data.feedId;
-        prev.lastUpdated = Date.now();
-        chrome.storage.local.set({ synlabs_auth: prev });
-        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
-      });
+      window._synlabsAuthCache.feedId = event.data.feedId;
+      window._synlabsAuthCache.lastUpdated = Date.now();
+      try {
+        chrome.storage.local.set({ synlabs_auth: window._synlabsAuthCache });
+        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: { feedId: event.data.feedId } });
+      } catch (_) {}
     }
     if (event.data.type === "SYNLABS_ENDPOINT_CAPTURED" && event.data.url) {
-      chrome.storage.local.get(["synlabs_auth"], (res) => {
-        const prev = res.synlabs_auth || {};
-        if (event.data.url.includes("signed")) prev.signedUrl = event.data.url;
-        if (event.data.url.includes("update")) prev.updateUrl = event.data.url;
-        if (event.data.url.includes("connection")) prev.connectionUrl = event.data.url;
-        prev.lastUpdated = Date.now();
-        chrome.storage.local.set({ synlabs_auth: prev });
-        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: prev });
-      });
+      const endpointUpdate = {};
+      if (event.data.url.includes("signed")) {
+        window._synlabsAuthCache.signedUrl = event.data.url;
+        endpointUpdate.signedUrl = event.data.url;
+      }
+      if (event.data.url.includes("update")) {
+        window._synlabsAuthCache.updateUrl = event.data.url;
+        endpointUpdate.updateUrl = event.data.url;
+      }
+      if (event.data.url.includes("connection")) {
+        window._synlabsAuthCache.connectionUrl = event.data.url;
+        endpointUpdate.connectionUrl = event.data.url;
+      }
+      window._synlabsAuthCache.lastUpdated = Date.now();
+      try {
+        chrome.storage.local.set({ synlabs_auth: window._synlabsAuthCache });
+        chrome.runtime.sendMessage({ action: "UPDATE_SYNLABS_AUTH", data: endpointUpdate });
+      } catch (_) {}
     }
 
     // Ugaan Cloud VMS Video Cloner & Auto-Pack

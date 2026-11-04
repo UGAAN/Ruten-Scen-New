@@ -1931,6 +1931,29 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
       synlabs = deps.synlabsAuth;
     }
 
+    // Cookie fallback: If synlabs.token is missing, attempt to retrieve from session cookies
+    if (!synlabs.token && (deps.cookies || (typeof chrome !== "undefined" && chrome.cookies && chrome.cookies.getAll))) {
+      try {
+        const cookieFetcher = deps.cookies || chrome.cookies;
+        const cookies = await cookieFetcher.getAll({ domain: "synlabs.io" });
+        if (Array.isArray(cookies)) {
+          for (const c of cookies) {
+            const cName = (c.name || "").toLowerCase();
+            if (cName.includes("token") || cName.includes("jwt") || cName.includes("auth") || cName === "session") {
+              const cVal = c.value ? String(c.value).replace(/^Bearer\s+/i, "").trim() : "";
+              if (cVal && cVal.length > 20) {
+                synlabs.token = cVal;
+                console.log(`[FKVMS-AutoPush] Retrieved Synlabs token from browser cookie: ${c.name}`);
+                break;
+              }
+            }
+          }
+        }
+      } catch (cookieErr) {
+        console.warn("[FKVMS-AutoPush] Cookie fallback check warning:", cookieErr);
+      }
+    }
+
     if (!synlabs.token || !synlabs.feedId) {
       console.warn("[FKVMS-AutoPush] Missing active Synlabs session token or feedId.");
       return {
@@ -2072,12 +2095,25 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
     }
 
     // 3. PUT binary video payload to S3
-    const extraHeaders = signedData.headers || (signedData.data && signedData.data.headers) || {};
+    const extraHeaders = Object.assign({}, signedData.headers || (signedData.data && signedData.data.headers) || {});
+    const baseMime = (videoBlob.type ? videoBlob.type.split(";")[0].trim() : "video/webm") || "video/webm";
+    const expectedContentType = signedData.contentType || signedData.mimeType ||
+      (signedData.data && (signedData.data.contentType || signedData.data.mimeType));
+    
+    let targetContentType = expectedContentType || baseMime;
+    // Check if extraHeaders specifies content type in any casing and deduplicate
+    for (const k of Object.keys(extraHeaders)) {
+      if (k.toLowerCase() === "content-type") {
+        targetContentType = extraHeaders[k];
+        delete extraHeaders[k];
+      }
+    }
+
     const s3Headers = Object.assign({
-      "Content-Type": videoBlob.type || "video/webm"
+      "Content-Type": targetContentType
     }, extraHeaders);
 
-    console.log(`[FKVMS-AutoPush] Uploading video to S3 (${videoBlob.size} bytes)...`);
+    console.log(`[FKVMS-AutoPush] Uploading video to S3 (${videoBlob.size} bytes, Content-Type: ${targetContentType})...`);
     const s3Resp = await fetchFn(s3TargetUrl, {
       method: "PUT",
       headers: s3Headers,
@@ -2085,7 +2121,14 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
     });
 
     if (!s3Resp.ok) {
-      throw new Error(`S3 video PUT upload failed with HTTP ${s3Resp.status}`);
+      let errBody = "";
+      try {
+        errBody = await s3Resp.text();
+      } catch (_) {}
+      const s3ErrMsg = errBody && errBody.includes("<Message>")
+        ? (errBody.match(/<Message>(.*?)<\/Message>/) || [null, errBody])[1]
+        : errBody;
+      throw new Error(`S3 video PUT upload failed with HTTP ${s3Resp.status}${s3ErrMsg ? ': ' + s3ErrMsg : ''}`);
     }
 
     // 4. Finalize upload with Synlabs (/api/feed/video/update?trackingId=...)
@@ -2133,7 +2176,11 @@ async function pushVideoToFlipkartVms(request, deps = {}) {
     }
 
     if (!updateResp.ok) {
-      throw new Error(`Synlabs video update registration failed with HTTP ${updateResp.status}`);
+      let updateErrText = "";
+      try {
+        updateErrText = await updateResp.text();
+      } catch (_) {}
+      throw new Error(`Synlabs video update registration failed with HTTP ${updateResp.status}${updateErrText ? ': ' + updateErrText : ''}`);
     }
 
     console.log(`%c[FKVMS-AutoPush] Video for Courier AWB ${awb} uploaded to Flipkart VMS successfully!`, "color: #00E676; font-weight: bold;");
